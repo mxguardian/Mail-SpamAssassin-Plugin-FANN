@@ -1,5 +1,5 @@
 # <@LICENSE>
-# Copyright 2024 MXGuardian
+# Copyright 2026 MXGuardian
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -524,7 +524,7 @@ L<sa-fann-train(1)>
 
 =head1 LICENSE
 
-Copyright 2024 MXGuardian
+Copyright 2026 MXGuardian
 
 Licensed under the Apache License, Version 2.0.
 
