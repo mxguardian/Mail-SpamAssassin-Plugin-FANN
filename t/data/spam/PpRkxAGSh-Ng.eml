@@ -1,0 +1,336 @@
+Received: from NAM11-DM6-obe.outbound.protection.outlook.com (mail-dm6nam11olkn20807.outbound.protection.outlook.com [IPv6:2a01:111:f400:7eaa::807])
+	by in01.mxguardian.net (Postfix) with ESMTPS id AD377842E82
+	for <redacted@example.com>; Mon,  2 May 2022 07:40:13 +0000 (UTC)
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector9901; d=microsoft.com; cv=none;
+ b=AGDqz6wgFTg9RerXwIEXscfwoYyBxdzmMtAf4xXd4uXX98NTrUwHdbNR9kK2Jeixh51FvX9AVn0ZZ0ehVBs5GCG44gn98Hz97sR9RnXSVoLp27teLJW/Q7OArt2WdZs89rra69yV0SI46zLYH559QqQbEqjPWiOXIrjlfFhEbEk+/IPiUuJglrWflAKk7Pn+Yq8LjPk8iOu85lsbHFb9kW/ACARxhe+VehmFN+M4ceoQ1olcW+2GhS+8V/eFbtXUuqSx4Qnv3p4quyWNWHIFE4WWjkFt09jC/H+Hzd3PEG/JAGX8DKXfn7tnGNMisiSPGKR5GULeuOW8bxaA4ER9Rw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector9901;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=/jBkckwR6Wf8famkCmND+DaXjmB3k8MhDBA8mNxqRC8=;
+ b=HtZh1yseuDoW4mit1i0opYO4CbpQQXYbniptliHhjpi+TeYKuE8qKCmKv9rR7s37T4ey7Mhj62SfifqJDuuYPGoEl1MYHC49kZaQ/7R7z/9lb+D/vh53E9QciBhA6ruliP4ak8tNpMjZbksYosZ/eEkjXtsqYsUI8gsTl0sRj4t1UPt1C6POOBJqcD//CRASJ/b8eizIf74+8c0Pt6bmKVwZMq7G0CSrQRf9i66XSyTMG6OS3a0x2aGzpbFLR3oHJKmF8YyXkLKmrVkd5KCHHP0BdhJQjrW+xfluupaoWCn5Gj6wa3RLQE3MXuuLSEfxDIXy/2TzkJJAJPErssUT1g==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=none; dmarc=none;
+ dkim=none; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=hotmail.com;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=/jBkckwR6Wf8famkCmND+DaXjmB3k8MhDBA8mNxqRC8=;
+ b=OPFGhD8Abrg25xiU23wegM9UbV6dXt7OqECT56EbbwGK8l+VqdzD/4MQ5uiiYeL86iiURIuSJrb3SIVQnGMY+AaCtTtjIxKWA5CoYMWY15QLfjRNTbOIIGxJUCYutUx4eI+petpXmynmucQJPQhwbBymfF9uqpElyJnjHidvnkQhPIC8llRNz7GeMprFmM/ftq1U9XPhrz7wpB9G11gxXEQC8zqYre9rvLZdXFaEKNi4xrpCn4orLbeOL+EqxnQCy1kjc2TsdJ8+GaY/YGSBbLY15BGcBz6RD2BWDtVEHdgwBr6dO0aL0xT1fQYHKc0N5cjo8U2xSPaE7EuuyJVGPw==
+Received: from DS7PR03MB5544.namprd03.prod.outlook.com (2603:10b6:5:2d3::18)
+ by SN2PR03MB2397.namprd03.prod.outlook.com (2603:10b6:804:10::10) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.5186.28; Mon, 2 May
+ 2022 07:40:02 +0000
+Received: from DS7PR03MB5544.namprd03.prod.outlook.com
+ ([fe80::c5ca:f68:2d71:bb0d]) by DS7PR03MB5544.namprd03.prod.outlook.com
+ ([fe80::c5ca:f68:2d71:bb0d%5]) with mapi id 15.20.5186.028; Mon, 2 May 2022
+ 07:40:02 +0000
+From: Manjit Randhawa <Manjitwebsolution@hotmail.com>
+Subject: Looking for Website Design
+Thread-Topic: Looking for Website Design
+Thread-Index: AQHYXfdOFa88cAWpiEu0QUNMj/vOrw==
+Date: Mon, 2 May 2022 07:40:02 +0000
+Message-ID:
+ <DS7PR03MB5544CA2FDA99E5162E1F7019B3C19@DS7PR03MB5544.namprd03.prod.outlook.com>
+Accept-Language: en-US
+Content-Language: en-US
+X-MS-Has-Attach:
+X-MS-TNEF-Correlator:
+suggested_attachment_session_id: 6291b9ea-aa48-b102-0d9c-09d2252cbca4
+x-tmn: [7cb+kjQDpkh4zXa4UII/yAzM68ONFSue]
+x-ms-publictraffictype: Email
+x-ms-office365-filtering-correlation-id: bf0a50e6-a7ba-4f8a-89ce-08da2c0ef796
+x-ms-traffictypediagnostic: SN2PR03MB2397:EE_
+x-microsoft-antispam: BCL:0;
+x-microsoft-antispam-message-info:
+ r26I8lWffX2zUdSze5R7y0SFROjcNQ4TvrezWXQHGU758s4I4xj4ln6MWoXvIlEqzMRlIPiMYdm4xYN3A4ogZqC6iOKCqxZsmLEwFnWmeYALFo0fxDKxEe1Ak/zaGHKGadR1Rw4AG/5/Ir1mJm3Kj0P4tsEbcQt/fqmANQ699E2sKW7ihclk7lsXcz3u76g9Gi0LasX+re8eShYILgtA1ii0qSgF3QjaKKb+AZgyVHuM29IVSxdUNs2ikWTjLCbXuEKYiQqBokMd04BXzaJkG7nIV9atnyOGdt0M2PzpUOVQApthFWq4j+gh6eZPYUjaT74wGGvRa6jfLYw+VqCh/KlcPhVpqIMz7ysJQ3AhZF0VimDRki+jJtwVnJfmiELT+5aDp5r3h7E7EOWmMU1LSwgYDsrfrke+cB/zbKd3O9srlQwpeSAI7W1sFWgTbfC8V+U2kGCU15cfWFweYWND7x0wcWwdpRChL3JKOPJ+MEbCjLY6vGaQgq/c01Q3hlXs9w9vIk3VxuyWrm7Yw2MQOOgyh8cBtp4gC+N6GaEQBvmuoWG/8mM1AlG91uB/rZKB3sEs9P1+P1cqH/MFfzee1w==
+x-ms-exchange-antispam-messagedata-chunkcount: 1
+x-ms-exchange-antispam-messagedata-0:
+ =?Windows-1252?Q?qADMhWGxHgn6QMS00Plhf1DLFqqIcxBPRjniQsdpLIU21FWhZ1KCxGVM?=
+ =?Windows-1252?Q?jRg9WJ9pEyhr7iUvtRMYdqG6MYhiv8kZicEQtAyXnc0M5ZIO5HL+ADZo?=
+ =?Windows-1252?Q?XcnXfbKyTRboqqpxFYoV04tYWYGZoAsl9eSta2GMZOAIj8U7MQUucNbU?=
+ =?Windows-1252?Q?HX94AYLwlxDQgXvjzft8fMJDywlV+9XntvrzNtHaSVC7k6jlh1Rr/QiG?=
+ =?Windows-1252?Q?q44c0HRm6a9j4aD+VRNXnqdFqLeA259zwaX08SNXUIsXJaS8shmHuSZZ?=
+ =?Windows-1252?Q?tCm6MiXZo4dSnNgyUIZQtdUkh8FNFvjg91WgUSOJ8sXFEp1iTjHP2/UN?=
+ =?Windows-1252?Q?+yOeOc4+wNr0yl7deDq/Dh87iD2M6gPlJKH6FTJ5+UBxS/cwyE6Ebvtl?=
+ =?Windows-1252?Q?9mBB2ktIrurOGIrRqs+hJA/xyH9vlL7AnaGziDdaNJWUzxNebKO7O3sb?=
+ =?Windows-1252?Q?ZxHw4CCKKNxxf8mIV0fWN6aBkBQZIC0BUcPQ8o2gWYmZnzwji/N4Tjr0?=
+ =?Windows-1252?Q?nP5pk5huk4gcNictS1GeygVSELQjfjC8DcRGFHBSQcgFwDk01cQGyq6F?=
+ =?Windows-1252?Q?BTZsdMMrNPmsty7zFfsaBLGyyVfzkzrtUPh2SpOlGlZ/S64VeOvtuAw1?=
+ =?Windows-1252?Q?RvnKcUthl3Z/nd7qXnV41xRzt3y7vXrKcS0PRN9Hm/crXiZtlYO+4oBN?=
+ =?Windows-1252?Q?OMHz8S5oLTr2jFB3vNd/thIw8eUnILZYKWn2hI9aJmLRLTVOOLSHs2ZJ?=
+ =?Windows-1252?Q?UVVz/FBUgwCzpCjFLSQAgdXdFZNTbfnE3GusK148V3WfASO76qqw13pB?=
+ =?Windows-1252?Q?e3FzRLXyqENOuvv41Ki8oWwjM97vGpYcQ/Vbbao4W4EZRLMO5/x//iAc?=
+ =?Windows-1252?Q?1TgBu5VaEnrZurElL9HN6UzVC88Qb+HrW+j049NEcVpaC053mpqPr9xd?=
+ =?Windows-1252?Q?C6MfW726TgkYywWbF9QzVymnde1t60B+4rOpj8pu0B8tv3Oz+x5Xowln?=
+ =?Windows-1252?Q?mzeWwhbCN4HrgKfr4rEMzVm5KxO0JKlVygA7TNBLPFNTuWwWBV3AKTzt?=
+ =?Windows-1252?Q?1QQlwGH4Jmzsu645Gsw9WyblGZliAFhi/cKMe6sOiNWEhUj8xOMISSPb?=
+ =?Windows-1252?Q?8+tTZVUq++QFDMqA6vBPeebw09/Yn5rYvH5lxJ0RniHcjDjbxfEaGRii?=
+ =?Windows-1252?Q?zd+bn4RvmEvsZdBLLE/cp0HN0vVfQwLJkVL1E5IrkmdkGJH03hCM2cst?=
+ =?Windows-1252?Q?aM2B4lwI3eXwnRdX3Wq3PeMNyKv61Jgm0anf6bYDZCViSmyBl5q4XBGx?=
+ =?Windows-1252?Q?zdcoiXcakBKYtHadFFS5QoH6V54jBw4cV1a3ur1tm5NS3JLPsuGBP25J?=
+ =?Windows-1252?Q?rtgqXawLUzJkW6UNnqRjWAhsjCWJ5TwdAPmX4BADyEELH3Tpbzr4+ImM?=
+ =?Windows-1252?Q?7cYOI66RqTA2Ic9UxIEAPiW4ku0+bqmWyCUydMS0tu9csf8uSJKJ9lPx?=
+ =?Windows-1252?Q?i2YoIjjOqADXiwatk58dpkGRJuFCaB6r6lMgSBuH8no+shl8fws=3D?=
+Content-Type: multipart/alternative;
+	boundary="_000_DS7PR03MB5544CA2FDA99E5162E1F7019B3C19DS7PR03MB5544namp_"
+MIME-Version: 1.0
+X-OriginatorOrg: sct-15-20-4755-11-msonline-outlook-685f7.templateTenant
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-AuthSource: DS7PR03MB5544.namprd03.prod.outlook.com
+X-MS-Exchange-CrossTenant-RMS-PersistedConsumerOrg: 00000000-0000-0000-0000-000000000000
+X-MS-Exchange-CrossTenant-Network-Message-Id: bf0a50e6-a7ba-4f8a-89ce-08da2c0ef796
+X-MS-Exchange-CrossTenant-originalarrivaltime: 02 May 2022 07:40:02.1036
+ (UTC)
+X-MS-Exchange-CrossTenant-fromentityheader: Hosted
+X-MS-Exchange-CrossTenant-id: 84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa
+X-MS-Exchange-CrossTenant-rms-persistedconsumerorg: 00000000-0000-0000-0000-000000000000
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: SN2PR03MB2397
+To: "REDACTED" <recipient@example.com>
+
+--_000_DS7PR03MB5544CA2FDA99E5162E1F7019B3C19DS7PR03MB5544namp_
+Content-Type: text/plain; charset="Windows-1252"
+Content-Transfer-Encoding: quoted-printable
+Content-length: 803
+
+Hi,
+
+My Name is Manjit (Business Consultant).
+
+I found your web contact email from internet. I would like to discuss a bus=
+iness opportunity with you.
+
+We are an India based CMMi Level 3 Website development company with a prima=
+ry focus on Website.
+
+Offering the services like-
+
+1 - Web Design
+2 - Web Development
+3 - E-Commerce
+4 - Graphic Design
+5 - Logo Design
+6 - Website Revamping
+7 - PHP
+8 - HTML/HTML5
+9 - SEO Services
+10 - PPC Services
+11 - Jquery
+12 - Java
+13 - Mobile Apps Development
+
+
+Our design team can work closely with you as part of your marketing staff a=
+nd we can assure you - you won=92t even notice we are in another country.
+
+If you have any requirement, please revert with "query and contact number".
+
+Look forward to here from you.
+
+
+Kind regards,
+Manjit
+Business Consultant
+
+
+--_000_DS7PR03MB5544CA2FDA99E5162E1F7019B3C19DS7PR03MB5544namp_
+Content-Type: text/html; charset="Windows-1252"
+Content-Transfer-Encoding: quoted-printable
+Content-length: 11735
+
+<html>
+<head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3DWindows-1=
+252">
+<style type=3D"text/css" style=3D"display:none;"> P {margin-top:0;margin-bo=
+ttom:0;} </style>
+</head>
+<body dir=3D"ltr">
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0);" class=3D"elementToProof">
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Hi, &nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">My Name is&nbsp;Manjit (Business Consultant).</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">I found your web contact email from internet. I would like to discu=
+ss a business opportunity with you.</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">We are an India based CMMi Level 3 Website development company with=
+ a primary focus on Website.</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Offering the services like-</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">1 - Web Design</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">2 - Web Development</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">3 - E-Commerce</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">4 - Graphic Design</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">5 - Logo Design</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">6 - Website Revamping</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">7 - PHP</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">8 - HTML/HTML5</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">9 - SEO Services</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">10 - PPC Services</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">11 - Jquery</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">12 - Java</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">13 - Mobile Apps Development</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Our design team can work closely with you as part of your marketing=
+ staff and we can assure you - you won=92t even notice we are in another co=
+untry.</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">If you have any requirement, please revert with &quot;query and con=
+tact number&quot;.</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Look forward to here from you.</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">&nbsp;</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Kind regards,</span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222"><span style=3D"background-color:rgb(255, 255, 255);display:inline !=
+important">Manjit<span>&nbsp;</span></span></span></p>
+<p class=3D"MsoNormal" style=3D"margin:0cm 0cm 0.0001pt;font-size:12pt;font=
+-family:&quot;Times New Roman&quot;, &quot;serif&quot;;color:black;mso-marg=
+in-top-alt:auto;mso-margin-bottom-alt:auto">
+<span style=3D"font-family:&quot;Arial&quot;,&quot;sans-serif&quot;;color:#=
+222222">Business Consultant</span><o:p>&nbsp;</o:p></p>
+<u1:p></u1:p><br>
+</div>
+</body>
+</html>
+
+--_000_DS7PR03MB5544CA2FDA99E5162E1F7019B3C19DS7PR03MB5544namp_--

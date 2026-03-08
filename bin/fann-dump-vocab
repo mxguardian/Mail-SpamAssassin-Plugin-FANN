@@ -1,0 +1,62 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Storable qw(retrieve);
+use Getopt::Long;
+
+my %opt;
+GetOptions(
+  'path=s'   => \$opt{path},
+  'prefix=s' => \$opt{prefix},
+  'rules'    => \$opt{rules},
+  'help|h'   => \$opt{help},
+) or die "Usage: fann-dump-vocab [--path vocabulary.data] [--prefix body:] [--rules]\n";
+
+if ($opt{help}) {
+  print <<'USAGE';
+Usage: fann-dump-vocab [options]
+
+Options:
+  --path file     Path to vocabulary.data (default: ~/.spamassassin/fann_data/vocabulary.data)
+  --prefix str    Show only terms with this prefix (e.g. body:, subj:, from:, attach:)
+  --rules         Show rule terms instead of text terms
+  -h, --help      Show this help
+
+USAGE
+  exit 0;
+}
+
+my $vocab_path = $opt{path} || "$ENV{HOME}/.spamassassin/fann_data/vocabulary.data";
+die "File not found: $vocab_path\n" unless -f $vocab_path;
+
+my $vocab = retrieve($vocab_path) or die "Failed to load $vocab_path\n";
+
+printf "Messages: %d (%d spam, %d ham)\n",
+  $vocab->{_doc_count}, $vocab->{_spam_count}, $vocab->{_ham_count};
+
+if ($opt{rules}) {
+  my @rules = @{ $vocab->{rule_terms} || [] };
+  printf "Rule terms: %d\n\n", scalar @rules;
+  print "$_\n" for @rules;
+  exit 0;
+}
+
+my %terms = %{ $vocab->{terms} || {} };
+my @keys = sort keys %terms;
+
+if (defined $opt{prefix}) {
+  @keys = grep { index($_, $opt{prefix}) == 0 } @keys;
+}
+
+printf "Text terms: %d\n\n", scalar @keys;
+printf "%-30s  %6s  %6s  %6s\n", "Term", "Total", "Spam", "Ham";
+printf "%-30s  %6s  %6s  %6s\n", "-" x 30, "-" x 6, "-" x 6, "-" x 6;
+
+for my $t (@keys) {
+  printf "%-30s  %6d  %6d  %6d\n",
+    $t,
+    $terms{$t}{total} || 0,
+    $terms{$t}{spam}  || 0,
+    $terms{$t}{ham}   || 0;
+}

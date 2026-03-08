@@ -1,0 +1,14 @@
+loadplugin Mail::SpamAssassin::Plugin::FANN
+
+fann_min_spam_count	0
+fann_min_ham_count	0
+fann_train_epochs	1000
+fann_vocab_cap	50
+
+body		FANN_SPAM		eval:check_fann(0.50, 1.00)
+describe	FANN_SPAM		Email considered as spam by FANN
+score		FANN_SPAM		1.0
+
+body		FANN_HAM		eval:check_fann(0.00, 0.50)
+describe	FANN_HAM		Email considered as ham by FANN
+score		FANN_HAM		-1.0

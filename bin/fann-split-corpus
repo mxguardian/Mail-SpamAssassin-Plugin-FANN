@@ -1,0 +1,96 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use File::Copy;
+use File::Path qw(make_path);
+use File::Basename;
+use Getopt::Long;
+use List::Util qw(shuffle);
+
+my $split = 0.80;
+my $seed;
+my $help;
+
+GetOptions(
+  'split=f'  => \$split,
+  'seed=i'   => \$seed,
+  'help'     => \$help,
+) or usage();
+usage() if $help;
+
+my ($spam_dir, $ham_dir, $output_dir) = @ARGV;
+unless ($spam_dir && $ham_dir && $output_dir) {
+  usage();
+}
+
+die "Spam directory '$spam_dir' does not exist\n" unless -d $spam_dir;
+die "Ham directory '$ham_dir' does not exist\n"   unless -d $ham_dir;
+die "Split must be between 0 and 1\n" unless $split > 0 && $split < 1;
+
+srand($seed) if defined $seed;
+
+# Create output directories
+for my $sub (qw(train/spam train/ham test/spam test/ham)) {
+  my $path = "$output_dir/$sub";
+  make_path($path) or die "Cannot create $path: $!\n" unless -d $path;
+}
+
+my $spam_count = split_files($spam_dir, "$output_dir/train/spam", "$output_dir/test/spam", $split);
+my $ham_count  = split_files($ham_dir,  "$output_dir/train/ham",  "$output_dir/test/ham",  $split);
+
+my $spam_train = int($spam_count * $split);
+my $spam_test  = $spam_count - $spam_train;
+my $ham_train  = int($ham_count * $split);
+my $ham_test   = $ham_count - $ham_train;
+
+printf "Spam: %d total -> %d train, %d test\n", $spam_count, $spam_train, $spam_test;
+printf "Ham:  %d total -> %d train, %d test\n", $ham_count, $ham_train, $ham_test;
+printf "Output: %s/{train,test}/{spam,ham}\n", $output_dir;
+
+sub split_files {
+  my ($src_dir, $train_dir, $test_dir, $ratio) = @_;
+
+  opendir(my $dh, $src_dir) or die "Cannot open $src_dir: $!\n";
+  my @files = grep { -f "$src_dir/$_" } readdir($dh);
+  closedir($dh);
+
+  @files = shuffle(@files);
+  my $train_count = int(scalar(@files) * $ratio);
+
+  for my $i (0 .. $#files) {
+    my $src  = "$src_dir/$files[$i]";
+    my $dest = $i < $train_count ? "$train_dir/$files[$i]" : "$test_dir/$files[$i]";
+    link($src, $dest) or copy($src, $dest) or die "Cannot copy $src -> $dest: $!\n";
+  }
+
+  return scalar @files;
+}
+
+sub usage {
+  die <<EOF;
+Usage: $0 [options] <spam_dir> <ham_dir> <output_dir>
+
+Split a corpus of one-file-per-message spam and ham into training and
+test sets for evaluating sa-fann-train accuracy.
+
+Arguments:
+  spam_dir    Directory containing spam messages (one per file)
+  ham_dir     Directory containing ham messages (one per file)
+  output_dir  Output directory (created if needed)
+
+Output structure:
+  output_dir/train/spam/   Training spam messages
+  output_dir/train/ham/    Training ham messages
+  output_dir/test/spam/    Test spam messages
+  output_dir/test/ham/     Test ham messages
+
+Options:
+  --split F   Train/test split ratio (default: 0.80)
+  --seed N    Random seed for reproducible splits
+  --help      Show this help
+
+Example:
+  $0 --seed 42 ~/corpus/spam ~/corpus/ham ~/corpus/split
+EOF
+}

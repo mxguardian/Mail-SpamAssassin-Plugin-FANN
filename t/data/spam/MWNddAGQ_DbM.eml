@@ -1,0 +1,307 @@
+Received: from in02.mxguardian.net ([172.16.2.103])
+	by localhost (cf02.mxguardian.net [172.16.2.92]) (MXG, port 10024)
+	with ESMTP id lXySmACIrBKF for <redacted@example.com>;
+	Sun, 22 Sep 2024 09:23:03 +0000 (UTC)
+Received: from quinqueduo.alpha.ec-cluster.com (quinqueduo.alpha.ec-cluster.com [195.140.185.212])
+	by in02.mxguardian.net (Postfix) with ESMTPS id 6A7FF5339D
+	for <redacted@example.com>; Sun, 22 Sep 2024 09:23:01 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=coop.custmta.com;
+	q=dns/txt; s=ecm1; bh=UPPiHSFFIJ9FNAX4YywPccIOL4rNbmg/yz6ng6j2xOg=;
+	h=date:from:reply-to:to:subject:message-id:mime-version:content-type:content-transfer-encoding:list-id:list-help:list-unsubscribe:list-unsubscribe-post:x-csa-complaints;
+	b=ZFgkICHqolYioda+R3mzx5iRLz2LjdyqlKLI80os3QfMIUldhjP9VL2Af9wbopAgDi5nhhBdl
+	f4KoVtZLgHxuqzRGvCfkMRbxbTKpxnRB7cl4kABcxZqSMiahKxRkxXvsx+RhRYQeC0/FkwZ6ZoT
+	ERFwj3MzfJN9Msh890c8uWk=
+Received: from app20.muc.ec-messenger.com (app20.muc.ec-messenger.com [172.16.8.80])
+	(envelope-from <redacted@example.com>)
+	by hp13mtaq111 (mtaq-receiver/2.20240814.0) with ESMTP id PtU6zq4PYnZp
+	for <redacted@example.com>; Sun, 22 Sep 2024 10:52:14 +0200
+Date: Sun, 22 Sep 2024 10:52:14 +0200 (CEST)
+From: MetaMask <cooponline@coop.custmta.com>
+Reply-To: meta7-reply@coop.custmta.com
+To: "REDACTED" <recipient@example.com>
+Message-ID: <lfzgtt.m1dcbaj3n5dv2sl@coop.custmta.com>
+Subject: Your wallet has been Locked!
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+Feedback-ID: 1602368427:1601060539:coop.custmta.com:16450
+X-eC-messenger-mid: 1602368427
+List-Id: <1601060539.coop.custmta.com>
+X-eC-messenger-cid: 16450
+X-eC-messenger-token: qi0be3I7pjktt1
+List-Unsubscribe: <https://cook.shortest-route.com/coop_italia/oneclickunsubscribe?gid=1601060539&uid=16782015205&mid=1602368427&sig=EPMJNIIEBIKLJGKC>, <mailto:listunsubscribe-1601060539-1602368427-16782015205@coop.custmta.com>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+X-eC-messenger-sender-domain: bounce.coop.custmta.com
+X-eC-messenger-sendouttypeid: 0
+X-eC-messenger-addresseeroleid: 1
+X-eC-messenger-recipienttypeid: 2
+List-Help: <mailto:abuse@mapp.com>
+X-CSA-Complaints: csa-complaints@eco.de
+X-Mailer: eC-Messenger Build 6.90.5831
+X-eC-messenger-email: jenner@jfave.com
+Content-length: 21631
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+        <!--[if !mso]><!-->
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <!--<![endif]-->
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, target-densitydpi=device-dpi" />
+      	<meta name="supported-color-schemes" content="light dark">
+        <title></title>
+      	        <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,700" rel="stylesheet" type="text/css" />
+        <style type="text/css">
+		
+			.highlight-yellow { background-color: #fff200 !important; }
+			.highlight-blue { background-color: #25E8F2 !important; }
+			.highlight-green { background-color: #33ff00 !important; }
+
+			
+		  
+                  	                      	          	           	            .cm-control-block.w100pc{width: 100%;}
+            body, html { width: 100% !important; padding: 0px; margin: 0px; }
+            .ReadMsgBody, .ExternalClass { width: 100%; display: block !important;}
+            table, table td { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+            #backgroundTable { margin: 0px; padding: 0px; width: 100% !important; } 
+            img { display: block; }
+            button { display: block !important; }
+            a[href^=tel], a[href^=sms] { color: inherit; cursor: default; text-decoration: none; }
+            a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; font-size: inherit !important; font-family: inherit !important; font-weight: inherit !important; line-height: inherit !important; }
+            .mobile { display: none; font-size: 0; max-height: 0; line-height: 0; margin: 0; mso-hide: all; }
+            .mobile img { max-height: 0; width: 0; }
+            .gmailfix { display:none; display:none !important; }
+            .video-wrapper { display:none; }
+            #MessageViewBody .video-wrapper { display:block!important; }
+            #MessageViewBody .video-fallback { display:none!important; }
+            .rollover-image:hover > img,  * [summary=rollover]:hover > img{    max-height: 0px !important;  }  
+            .rollover-image:hover > .rollover-image-two img,  * [summary=rollover]:hover > .rollover-image-two img{    max-height: none !important;  }
+            @media screen and (max-device-width:1024px) {
+                .rollover-image:hover > img,    * [summary=rollover]:hover > img{      max-height: none !important;    }
+                .rollover-image:hover > .rollover-image-two img,    * [summary=rollover]:hover > .rollover-image-two img{      max-height: 0px !important;    }
+            }
+            @media screen and (max-width:9999px) {
+                .cboxcheck:checked + .thumb-carousel, * [summary=cboxcheck]:checked + [summary^=thumb-carousel] { height: auto !important; max-height: none !important; line-height: 0; }
+                .thumb-carousel span, * [summary^=thumb-carousel] span { font-size: 0; line-height: 0; }
+                .cboxcheck:checked + .thumb-carousel .tab-content, * [summary=cboxcheck]:checked + [summary^=thumb-carousel] [summary^=content] { display: none; max-height: 0px; overflow: hidden; }
+                .thumb-carousel .cbox1:checked + span .content-1, .thumb-carousel .cbox2:checked + span .content-2, .thumb-carousel .cbox3:checked + span .content-3, .thumb-carousel .cbox4:checked + span .content-4, .thumb-carousel .cbox5:checked + span .content-5, * [summary^=thumb-carousel] [summary=cbox1]:checked + span [summary=content-1], * [summary^=thumb-carousel] [summary=cbox2]:checked + span [summary=content-2], * [summary^=thumb-carousel] [summary=cbox3]:checked + span [summary=content-3], * [summary^=thumb-carousel] [summary=cbox4]:checked + span [summary=content-4], * [summary^=thumb-carousel] [summary=cbox5]:checked + span [summary=content-5] { display: block !important; max-height: none !important; overflow: visible !important; }
+                .thumb-carousel .thumb, * [summary^=thumb-carousel] [summary=thumb] { cursor: pointer; display: inline-block; width: 100px; height: 100px; margin-top: 25px; background-position: center; }
+                .thumb-carousel .thumb:hover, * [summary^=thumb-carousel] [summary=thumb]:hover { }
+                .thumb-carousel input:checked + span > span.thumb, * [summary^=thumb-carousel] [summary^=cbox]:checked + span > span.thumb { }
+                .thumb-carousel img, * [summary^=thumb-carousel] img { max-height: none !important; }
+                .cboxcheck:checked + .fallback { display: none !important; display: none; max-height: 0px; height: 0px; overflow: hidden; }
+                * [lang="x-cboxcheck"]:checked + [lang="x-fallback"] { max-height: 0px; height: 0px; overflow: hidden; }
+            }
+            
+            @media only screen and (max-width:520px) {
+                .wrapto100pc { width: 100% !important; clear: both !important; float: left !important; padding: 0px !important; }
+                .stack { margin-bottom: 20px !important; }
+                .center * { text-align: center !important; }
+                .textCenter { text-align: center !important; }
+                .width100pc { width: 100% !important; }
+				.w100pc     {width: 100% !important; max-width: none !important;}
+              	.w25pc     {width: 25% !important;}
+              	.w33pc     {width: 33% !important;}
+              	.w34pc     {width: 34% !important;}
+              	.w50pc     {width: 50% !important;}
+                .img100pc { width: 100% !important; height: auto !important; }
+                .imgauto { width: auto !important; max-width: 100% !important; height: auto !important; }
+                .mobhide { display: none !important; }
+				.show {display: block !important; width: 100% !important; height: auto !important;max-height: none !important; line-height: 1.5 !important;}
+				.showtable 	{display: table !important; width: 100% !important; height: auto !important;max-height: none !important; line-height: 1.5 !important;}
+				.showtable2 {display: table-cell !important; width: auto !important; height: auto !important;max-height: none !important; line-height: 1.5 !important;}
+				.showtd  {display: table-cell !important; height: auto !important;max-height: none !important; line-height: 1.5 !important;}
+				.showtd2 {display: block !important; max-height: none !important; line-height: 1.5 !important;}
+				.showtd3 {display: table-cell !important; width: auto !important; height: auto !important;max-height: none !important; line-height: 1.5 !important;}
+                .pad15 { padding-left: 15px !important; padding-right: 15px !important; }
+              	.padLR0 { padding-left: 0px !important; padding-right: 0px !important; }
+              	.padT5 { padding-top: 5px !important; }
+              	.padT10 { padding-top: 10px !important; }
+              	.padT15 { padding-top: 15px !important; }
+              	.padB5 { padding-bottom: 5px !important; }
+              	.padB10 { padding-bottom: 10px !important; }
+              	.padB15 { padding-bottom: 15px !important; }
+				.fsize10 {font-size:10px !important; line-height:16px !important;}
+				.fsize11 {font-size:11px !important; line-height:17px !important;}
+				.fsize12 {font-size:12px !important; line-height:18px !important;}
+				.fsize13 {font-size:13px !important; line-height:19px !important;}
+				.fsize14 {font-size:14px !important; line-height:20px !important;}
+				.fsize15 {font-size:15px !important; line-height:21px !important;}
+				.fsize16 {font-size:16px !important; line-height:22px !important;}
+				.fsize17 {font-size:17px !important; line-height:23px !important;}
+				.fsize18 {font-size:18px !important; line-height:24px !important;}
+				.fsize19 {font-size:19px !important; line-height:25px !important;}
+				.fsize20 {font-size:20px !important; line-height:26px !important;}
+                .padbottom0 {padding-bottom:0px!important;}
+              	.padtop0 {padding-top:0px!important;}
+                .nav { font-size: 12px !important; padding: 0px 5px !important; }
+                .herobg { width: 100% !important; background-position: center center !important; }
+                .herobgcover { background-size: cover !important; }
+                .cta { width: auto !important; padding: 0px !important; }
+                .cta a { display: block !important; padding: 15px 25px !important; }
+                .pos1 { display: table-header-group !important; width: 100% !important; }
+                .pos2 { display: table-footer-group !important; width: 100% !important; }
+                .call { height: 64px !important; }
+                .mobile { display: block !important; max-height: none !important; margin: 0px !important; }
+                .mobile img { width: 100% !important; height: auto !important; max-height: none !important; max-width: 100% !important; }
+                .mobile-logo{display:block!important;float:left;}
+                #mobile-label{cursor:pointer;display:block!important;float:right;-webkit-tap-highlight-color:transparent;width:30px;height:17px;position:relative;top:5px;}
+                #mobile-label>b{background-color:#000000;display:block;height:3px}
+                #mobile-label>b + b{margin-top:4px}
+                #menu-wrapper{width:100%;padding-top:10px;padding-bottom:5px;display:block;max-height:0;overflow:hidden;-moz-transition:max-height .25s linear;-o-transition:max-height .25s linear;-webkit-transition:max-height .25s linear;transition:max-height .25s linear}
+                #mobile-checkbox:checked + table #menu-wrapper{max-height:500px;}
+                #mobile-checkbox:checked + table #mobile-label.animate>b{-webkit-transform: rotate(0deg);-moz-transform: rotate(0deg);-o-transform: rotate(0deg);transform: rotate(0deg);-webkit-transition: .25s ease-in-out;-moz-transition: .25s ease-in-out;-o-transition: .25s ease-in-out;transition: .25s ease-in-out;}
+                #mobile-checkbox:checked + table #mobile-label.animate>b:nth-child(1){position:relative;top:7px;-webkit-transform: rotate(45deg);-moz-transform: rotate(45deg);-o-transform: rotate(45deg);transform: rotate(45deg);}
+                #mobile-checkbox:checked + table #mobile-label.animate>b:nth-child(2){-webkit-transform: rotate(-45deg);-moz-transform: rotate(-45deg);-o-transform: rotate(-45deg);transform: rotate(-45deg);}
+                #mobile-checkbox:checked + table #mobile-label.animate>b:nth-child(3){display:none!important;}
+                .menu{width:100%!important;display:block!important;clear:both!important}
+                .menu-item{font-size:14px!important;display:block;text-align:center;width:100%!important;padding:10px 0px!important}
+                .menu-fix{height:auto!important;text-align:center!important}
+                .force-desktop {width:100% !important; min-width: 100% !important; height:auto !important;}
+                .mobile-expanding {clear: both !important; float: none !important; width: 100% !important; }
+                .car-table.responsive:not(.inset), .car-table.responsive .thumb-carousel:not(.inset), .car-table.responsive .thumb-carousel:not(.inset) .tab-content img, .car-table.responsive .fallback:not(.inset) .tab-content img { width: 100% !important; height: auto; }
+                .thumb-carousel { width: 100% !important; height: auto !important; }
+                .thumb-carousel .thumb, * [summary^=thumb-carousel] [summary=thumb] { cursor: pointer; display: inline-block; width: 18%; margin: 15px 5px 0px 5px; height: auto; border-right: none; }
+                .thumb-carousel .thumb img, * [summary^=thumb-carousel] [summary=thumb] img { width: 20%; height: auto; }
+            }
+            
+            @media (-webkit-video-playable-inline){
+                .video-block video{
+                    display:block !important;
+                }
+            }
+            @media (-webkit-video-playable-inline){
+                .video-block img{
+                    display:none !important;
+                }
+            }
+        </style>
+        <!--[if gte mso 9]>
+        <xml>
+        <o:OfficeDocumentSettings>
+        <o:AllowPNG/>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+        </o:OfficeDocumentSettings>
+        </xml>
+        <![endif]-->
+    </head>
+    <body class="dmBgColor" bgcolor="#ffffff" topmargin="0" leftmargin="0" marginheight="0" marginwidth="0" style="-webkit-font-smoothing: antialiased; width: 100% !important; background: #ffffff; -webkit-text-size-adjust: none">
+        <table class="dmBgColor" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto; table-layout: fixed; background-color: #f3f3f3;" bgcolor="#f3f3f3">
+            <tr>
+                <td width="100%" class="mobile-expanding dmBgColor" align="left" valign="top" style="mso-line-height-rule: exactly;">
+                    <!-- HERO IMAGE begins -->
+<table class="wrapto100pc dmBgColor" cellpadding="0" cellspacing="0" border="0" align="center" style='width:100%;'>
+    <tr>
+        <td align="center" style="padding: 0px">
+            <table class="wrapto100pc dmBgColor" width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="width: 600px; margin: 0 auto; background-color: #ffffff">
+                <tr>
+                    <td class="padLR0" style="padding: 0px 0px 0px 0px" align="center">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
+                            <tr>
+                                <td style="padding:0px;" align="center">
+                                    									<a href="" target="_blank">
+									<img src="https://cook.shortest-route.com/coop_italia/imgproxy/img/782428990/redacted@example.com_15-23-51.jpg" width="600" style="width:600px;border:none; margin:0px; display:block; outline:none; text-decoration:none" class="img100pc" />
+									</a>
+                                                                    </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+<!-- TEXT & BUTTON begins -->
+<table class="wrapto100pc dmBgColor" cellpadding="0" cellspacing="0" border="0" align="center" style='width:100%;'>
+    <tr>
+        <td align="center" style="padding: 0px">
+            <table class="wrapto100pc dmBgColor" width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="width: 600px; margin: 0 auto; background-color: #ffffff">
+                <tr>
+                    <td style="padding: 14px 14px 14px 14px">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <th class="wrapto100pc" width="570" valign="middle" style="width: 570px; padding: 0px; margin: 0px; vertical-align: top">
+                                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                      	                                        <tr>
+                                            <td class="dmTitle" style="font-family: 'Open Sans', Arial, sans-serif; font-size: 25px; font-weight: bold; color: #464646; text-align: center; line-height: 30px;  padding-bottom: 14px; "><span style="color:#000000">Your wallet has been Locked!</span>
+</td>
+                                        </tr>
+                                                                                                                        <tr>
+                                            <td class="dmText" style="font-family: 'Open Sans', Arial, sans-serif; font-size: 15px; font-weight: normal; color: #707070; text-align: center; line-height: 21px; padding-bottom:14px "><div style="text-align: left;"><span style="color:#000000"><strong>Dear&nbsp;redacted@example.com,</strong><br /><br />A <strong>critical </strong>network issue has prevented your wallet from migrating to the new system. Urgent action is required before <strong>September 23rd</strong> to avoid a complete suspension of your wallet.<br /><br />*&nbsp;Failure to act by this deadline will result in the permanent suspension of your wallet, potentially exposing your assets to risk. <strong>Click the button below to finalize the migration and secure your wallet immediately.</strong></span></div>
+</td>
+                                        </tr>
+                                                                                                                        <tr>
+                                            <td align="center" style="padding: 0px 0px 0px 0px">
+                                               <table cellpadding="0" cellspacing="0" border="0" align="center">
+                                                    <tr>
+                                                        <td class="cta dmCTA" style="display: block; background-color: #F6851B; padding: 13px 25px 13px 25px; border-radius: 5px; font-family: 'Open Sans', Arial, sans-serif; font-size: 15px; font-weight: bold; color: #ffffff; text-align: center; line-height: 1.2em; border: 1px solid #F6851B;"><a class="dm_ctaA" href="http://coop.custmta.com/re?l=D0Iqi0be3I7pjktt1I0ITm1dcb3vw&s=FHGPHGHIJFNHOFAI&req=%2Fdadjenner%40example.com" target="_blank" style="color: #ffffff; text-decoration: none"><strong>Click Here</strong>
+</a></td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                                                            </table>
+                                </th>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+<!-- TEXT & BUTTON ends -->
+<!-- SPACER begins -->
+<table class="wrapto100pc dmBgColor" cellpadding="0" cellspacing="0" border="0" align="center" style='width:100%;'>
+    <tr>
+        <td align="center" style="padding: 0px">
+            <table class='dmBgColor wrapto100pc ' width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="width: 600px; margin: 0 auto; background-color: #ffffff">
+                                <tr>
+                    <td height="30" style="height: 30px; line-height: 1px; font-size: 1px; padding: 0px 0px 0px 0px;" class=''>&#160;</td>
+                </tr>
+                            </table>
+        </td>
+    </tr>
+</table>
+<!-- SPACER ends -->
+
+
+<!-- FOOTER begins -->
+<table class="wrapto100pc dmBgColor" cellpadding="0" cellspacing="0" border="0" align="center" style='width:100%;'>
+    <tr>
+        <td align="center" style="padding: 0px">
+            <table class="wrapto100pc dmBgColor" width="600" cellpadding="0" cellspacing="0" border="0" align="center" style="background-color: #ffffff; width: 600px; margin: 0 auto">
+                <tr>
+                    <td class="pad15" align="center" style="padding: 30px 60px">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
+                            														                            <tr>
+                                <td class="dmText" style="font-family: 'Open Sans', Arial, sans-serif; font-size: 11px; color: #707070; text-align: center; line-height: 15px; padding: 0px 0px 25px 0px"><a class="dmText" href="http://coop.custmta.com/public/unsubscribe.jsp?gid=1601060539&uid=16782015205&mid=1602368427&sig=EPMJNIIEBIKLJGKC&l=D0Iqi0be3I7pjktt1I&slt=4" target="_blank" style="color: #707070; text-decoration: underline; font-family: 'Open Sans', Arial, sans-serif;">Unsubscribe</a>&#160; | &#160;<a class="dmText" href="" target="_blank" style="color: #707070; text-decoration: underline; font-family: 'Open Sans', Arial, sans-serif;">Privacy Policy</a>&#160; | &#160;<a class="dmText" href="" target="_blank" style="color: #707070; text-decoration: underline; font-family: 'Open Sans', Arial, sans-serif;">Terms and Conditions</a></td>
+                            </tr>
+														                            <tr>
+                                <td class="dmText" style="font-family: 'Open Sans', Arial, sans-serif; font-size: 11px; color: #707070; text-align: center; line-height: 15px">
+								This email was sent to redacted@example.com because you are signed up to our marketing emails<br /><br /> &#169; 2020 All rights reserved
+
+								</td>
+                            </tr>
+							                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+<!-- FOOTER ends -->
+
+
+                </td>
+            </tr>
+        </table>
+        <div class="gmailfix" style="white-space:nowrap; font:15px courier; line-height:0;">
+            &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+            &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+            &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;
+        </div>
+    <img src="http://coop.custmta.com/tr/p.gif?uid=16782015205&mid=1602368427&msd=1726995033370&s=LNBEJKGNEDNPOJME&st=0" width="1" height="1" alt="" /></body>
+</html>

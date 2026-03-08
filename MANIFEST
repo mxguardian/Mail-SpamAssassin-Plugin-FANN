@@ -1,0 +1,8 @@
+bin/fann-dump-vocab
+bin/fann-split-corpus
+bin/fann-test-accuracy
+bin/sa-fann-train
+lib/Mail/SpamAssassin/Plugin/FANN.pm
+Makefile.PL
+MANIFEST
+t/fann.t

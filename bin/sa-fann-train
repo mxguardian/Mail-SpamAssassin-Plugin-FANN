@@ -1,0 +1,564 @@
+#!/usr/bin/perl -w -T
+#
+# Copyright 2024 MXGuardian
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+use strict;
+use warnings;
+use re 'taint';
+
+use Errno qw(EBADF);
+use File::Spec;
+use Config;
+
+use Getopt::Long;
+use Pod::Usage;
+use POSIX qw(locale_h setsid sigprocmask _exit);
+
+POSIX::setlocale(LC_TIME,'C');
+
+use AI::FANN qw(:all);
+use Storable qw(store);
+
+use Mail::SpamAssassin;
+use Mail::SpamAssassin::Util;
+
+sub usage {
+  pod2usage(
+    -exitval => 64,
+    -verbose => 0,
+    -message => 'For more information, try sa-fann-train --help',
+  );
+}
+
+my %opt = ();
+
+GetOptions(
+  'spam=s'             => \$opt{'spam'},
+  'ham=s'              => \$opt{'ham'},
+  'epochs=i'           => \$opt{'epochs'},
+  'vocab-cap=i'        => \$opt{'vocab_cap'},
+  'configpath|C=s'     => \$opt{'configpath'},
+  'siteconfigpath=s'   => \$opt{'siteconfigpath'},
+  'prefspath|p=s'      => \$opt{'prefspath'},
+  'no-rules'           => \$opt{'no_rules'},
+  'hidden=i'           => \$opt{'hidden'},
+  'progress'           => \$opt{'progress'},
+  'debug|D:s'          => \$opt{'debug'},
+  'local|L'            => \$opt{'local'},
+  'help|h'             => \$opt{'help'},
+  'version|V'          => \$opt{'version'},
+) or usage();
+
+if ($opt{'help'}) {
+  pod2usage(-exitval => 0, -verbose => 1);
+}
+
+if ($opt{'version'}) {
+  print "sa-fann-train version " . Mail::SpamAssassin->Version() . "\n";
+  exit 0;
+}
+
+unless ($opt{'spam'} && $opt{'ham'}) {
+  die "Both --spam <dir> and --ham <dir> are required.\n" .
+      "Usage: sa-fann-train --spam <spam-dir> --ham <ham-dir> [options]\n";
+}
+
+# Untaint and validate directories
+my $spam_dir = Mail::SpamAssassin::Util::untaint_file_path($opt{'spam'});
+my $ham_dir  = Mail::SpamAssassin::Util::untaint_file_path($opt{'ham'});
+die "Spam directory '$spam_dir' does not exist or is not a directory\n" unless -d $spam_dir;
+die "Ham directory '$ham_dir' does not exist or is not a directory\n"   unless -d $ham_dir;
+
+my $start_time = time();
+
+# Create the SpamAssassin instance
+my $spamtest = Mail::SpamAssassin->new(
+  {
+    rules_filename      => $opt{'configpath'},
+    site_rules_filename => $opt{'siteconfigpath'},
+    userprefs_filename  => $opt{'prefspath'},
+    debug               => $opt{'debug'},
+    local_tests_only    => $opt{'local'},
+    dont_copy_prefs     => 1,
+  }
+);
+
+$spamtest->init(1);
+
+# Disable Bayes during training to avoid polluting the Bayes database
+$spamtest->{conf}->{use_bayes} = 0;
+
+# Find the FANN plugin instance
+my $nn_plugin;
+foreach my $plugin (@{$spamtest->{plugins}->{plugins}}) {
+  if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+    $nn_plugin = $plugin;
+    last;
+  }
+}
+die "FANN plugin not loaded -- is it enabled in your configuration?\n"
+  unless $nn_plugin;
+
+# Set training mode to prevent check_cleanup from running inference
+$nn_plugin->{training_mode} = 1;
+my $use_rules = !$opt{'no_rules'};
+
+# Read configuration, apply command-line overrides
+my $conf = $spamtest->{conf};
+
+my $nn_data_dir = $conf->{fann_data_dir};
+unless (defined $nn_data_dir) {
+  die "fann_data_dir not set in configuration\n";
+}
+$nn_data_dir = Mail::SpamAssassin::Util::untaint_file_path($nn_data_dir);
+unless (-d $nn_data_dir) {
+  die "fann_data_dir '$nn_data_dir' does not exist or is not a directory\n";
+}
+
+my $vocab_cap       = $opt{'vocab_cap'}  || $conf->{fann_vocab_cap};
+my $train_epochs    = $opt{'epochs'}     || $conf->{fann_train_epochs};
+my $learning_rate   = $conf->{fann_learning_rate};
+my $momentum        = $conf->{fann_momentum};
+my $train_algorithm = $conf->{fann_train_algorithm};
+my $min_text_len    = $conf->{fann_min_text_len};
+
+# Collect message files from spam and ham directories
+my @spam_files = collect_files($spam_dir);
+my @ham_files  = collect_files($ham_dir);
+
+die "No spam files found in $spam_dir\n" unless @spam_files;
+die "No ham files found in $ham_dir\n"   unless @ham_files;
+
+print "Found " . scalar(@spam_files) . " spam files, " . scalar(@ham_files) . " ham files\n";
+
+# Phase 1: Read all messages, build vocabulary, and collect rule hits
+print "Phase 1: Building vocabulary" . ($use_rules ? " and collecting rule hits" : "") . "...\n";
+my %vocabulary_terms;  # term => { total => N, docs => N }
+my %all_rules_seen;    # rule_name => 1
+my $total_docs = 0;
+my $spam_count = 0;
+my $ham_count  = 0;
+
+# Store tokenized messages for phase 2
+my @all_messages;  # [ { tokens => \@tokens, label => 0|1, rule_hits => \%hits } ]
+
+my $total_files = scalar(@spam_files) + scalar(@ham_files);
+my $files_done = 0;
+
+for my $entry (
+  (map { [$_, 1] } @spam_files),
+  (map { [$_, 0] } @ham_files),
+) {
+  my ($file, $label) = @$entry;
+  $files_done++;
+  if ($opt{'progress'} && -t STDERR) {
+    printf STDERR "\r  %d/%d", $files_done, $total_files;
+  }
+
+  my ($text, $rule_hits, $from_name, $subject, $attach_names) = process_message($spamtest, $nn_plugin, $file, $use_rules);
+  next unless defined $text && length($text) >= $min_text_len;
+
+  my @tokens = $nn_plugin->tokenize_text($text, 'body:');
+  if (defined $from_name && length $from_name) {
+    push @tokens, $nn_plugin->tokenize_text($from_name, 'from:');
+  }
+  if (defined $subject && length $subject) {
+    push @tokens, $nn_plugin->tokenize_text($subject, 'subj:');
+  }
+  if ($attach_names && @$attach_names) {
+    for my $name (@$attach_names) {
+      push @tokens, $nn_plugin->tokenize_filename($name, 'attach:');
+    }
+  }
+  next unless @tokens;
+
+  $total_docs++;
+  if ($label) { $spam_count++; } else { $ham_count++; }
+
+  # Accumulate vocabulary statistics
+  my %seen;
+  foreach my $t (@tokens) {
+    $vocabulary_terms{$t}{total} = ($vocabulary_terms{$t}{total} || 0) + 1;
+    $seen{$t} = 1;
+  }
+  foreach my $t (keys %seen) {
+    $vocabulary_terms{$t}{docs} = ($vocabulary_terms{$t}{docs} || 0) + 1;
+    if ($label) {
+      $vocabulary_terms{$t}{spam} = ($vocabulary_terms{$t}{spam} || 0) + 1;
+    } else {
+      $vocabulary_terms{$t}{ham} = ($vocabulary_terms{$t}{ham} || 0) + 1;
+    }
+  }
+
+  # Track per-rule spam/ham counts
+  if ($rule_hits) {
+    for my $r (keys %$rule_hits) {
+      $all_rules_seen{$r}{total} = ($all_rules_seen{$r}{total} || 0) + 1;
+      if ($label) {
+        $all_rules_seen{$r}{spam} = ($all_rules_seen{$r}{spam} || 0) + 1;
+      } else {
+        $all_rules_seen{$r}{ham} = ($all_rules_seen{$r}{ham} || 0) + 1;
+      }
+    }
+  }
+
+  push @all_messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits };
+}
+
+print STDERR "\r" . (" " x 40) . "\r" if $opt{'progress'} && -t STDERR;
+print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
+print "Raw vocabulary: " . scalar(keys %vocabulary_terms) . " terms\n";
+print "Rules seen: " . scalar(keys %all_rules_seen) . "\n" if $use_rules;
+
+# Build rule vocabulary, pruned by chi-squared significance
+# Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
+my $rule_chi2_threshold = 3.841;
+my @rule_terms;
+if ($use_rules) {
+  my %rule_chi2;
+  foreach my $r (keys %all_rules_seen) {
+    my $a = $all_rules_seen{$r}{spam} || 0;
+    my $b = $all_rules_seen{$r}{ham}  || 0;
+    my $c = $spam_count - $a;
+    my $d = $ham_count  - $b;
+    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+    if ($denom > 0) {
+      $rule_chi2{$r} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
+    } else {
+      $rule_chi2{$r} = 0;
+    }
+  }
+  my $raw_rule_count = scalar keys %all_rules_seen;
+  @rule_terms = sort grep { $rule_chi2{$_} >= $rule_chi2_threshold } keys %all_rules_seen;
+  my $kept = scalar @rule_terms;
+  print "Rules: $raw_rule_count seen, $kept kept (chi-squared >= $rule_chi2_threshold)\n";
+}
+my $rule_vocab_size = scalar @rule_terms;
+
+# Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
+my $terms_count = scalar keys %vocabulary_terms;
+if ($terms_count > $vocab_cap) {
+  # Chi-squared feature selection: rank terms by correlation with spam/ham
+  my %chi2;
+  foreach my $t (keys %vocabulary_terms) {
+    my $a = $vocabulary_terms{$t}{spam} || 0;  # spam docs with term
+    my $b = $vocabulary_terms{$t}{ham}  || 0;  # ham docs with term
+    my $c = $spam_count - $a;                  # spam docs without term
+    my $d = $ham_count  - $b;                  # ham docs without term
+    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+    if ($denom > 0) {
+      $chi2{$t} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
+    } else {
+      $chi2{$t} = 0;
+    }
+  }
+  my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vocabulary_terms;
+  my %pruned;
+  for my $i (0 .. $vocab_cap-1) {
+    last unless defined $top[$i];
+    $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
+  }
+  %vocabulary_terms = %pruned;
+  print "Pruned vocabulary to $vocab_cap terms (chi-squared selection)\n";
+}
+
+# Build vocab index and IDF values
+my @vocab_keys = sort keys %vocabulary_terms;
+my $vocab_size = scalar @vocab_keys;
+die "Empty vocabulary after processing -- check that messages have enough text\n" unless $vocab_size > 0;
+
+my %vocab_index = map { $vocab_keys[$_] => $_ } 0..$#vocab_keys;
+my $N = $total_docs || 1;
+my %idf;
+foreach my $w (@vocab_keys) {
+  my $df = $vocabulary_terms{$w}{docs} || 0;
+  $idf{$w} = log( ($N + 1) / ($df + 1) ) + 1;
+}
+
+# Phase 3: Compute combined feature vectors (TF-IDF + rule binary)
+my $total_input_size = $vocab_size + $rule_vocab_size;
+print "Phase 2: Computing feature vectors...\n";
+my (@train_vectors, @train_labels);
+
+foreach my $msg (@all_messages) {
+  my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
+
+  # Append binary rule features
+  if (@rule_terms) {
+    my $hits = $msg->{rule_hits} || {};
+    my @rule_vec = map { $hits->{$_} ? 1 : 0 } @rule_terms;
+    push @$vec, @rule_vec;
+  }
+
+  push @train_vectors, $vec;
+  push @train_labels, $msg->{label};
+}
+
+print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $total_input_size)\n";
+
+# Phase 3: Create and train FANN network
+print "Phase 3: Training neural network...\n";
+my $num_hidden = $opt{'hidden'} || int(sqrt($total_input_size)) || 1;
+
+my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
+$network->hidden_activation_function(FANN_SIGMOID_STEPWISE);
+$network->output_activation_function(FANN_SIGMOID_STEPWISE);
+$network->learning_rate($learning_rate);
+$network->learning_momentum($momentum);
+$network->training_algorithm($train_algorithm);
+
+# Build FANN TrainData
+my @td_args;
+for my $i (0 .. $#train_vectors) {
+  push @td_args, $train_vectors[$i], [$train_labels[$i]];
+}
+my $train_data = AI::FANN::TrainData->new(@td_args);
+
+print "Training: $total_input_size inputs ($vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
+$network->train_on_data($train_data, $train_epochs, 0, 0);
+
+# Save model
+my $dataset_path = File::Spec->catfile($nn_data_dir, 'fann.model');
+$dataset_path = Mail::SpamAssassin::Util::untaint_file_path($dataset_path);
+eval {
+  $network->save($dataset_path) or die "save failed";
+  1;
+} or do {
+  die "Failed to save model to $dataset_path: " . ($@ || 'unknown') . "\n";
+};
+
+# Save vocabulary
+my %vocabulary = (
+  terms       => \%vocabulary_terms,
+  rule_terms  => \@rule_terms,
+  _doc_count  => $total_docs,
+  _spam_count => $spam_count,
+  _ham_count  => $ham_count,
+);
+
+my $vocab_path = File::Spec->catfile($nn_data_dir, 'vocabulary.data');
+$vocab_path = Mail::SpamAssassin::Util::untaint_file_path($vocab_path);
+eval {
+  store(\%vocabulary, $vocab_path) or die "store failed";
+  1;
+} or do {
+  die "Failed to store vocabulary to $vocab_path: " . ($@ || 'unknown') . "\n";
+};
+print "Vocabulary saved to $vocab_path ($vocab_size text terms, $rule_vocab_size rule terms)\n";
+
+my $elapsed = time() - $start_time;
+print "\nTraining complete:\n";
+print "  Messages:      $total_docs ($spam_count spam, $ham_count ham)\n";
+print "  Text vocab:    $vocab_size terms\n";
+print "  Rule features: $rule_vocab_size\n";
+print "  Total inputs:  $total_input_size\n";
+print "  Hidden units:  $num_hidden\n";
+print "  Epochs:        $train_epochs\n";
+print "  Model saved:   $dataset_path\n";
+print "  Time:          ${elapsed}s\n";
+
+$spamtest->finish();
+exit 0;
+
+
+# --- Helper functions ---
+
+sub collect_files {
+  my ($dir) = @_;
+  opendir(my $dh, $dir) or die "Cannot open directory $dir: $!\n";
+  my @files;
+  while (my $entry = readdir($dh)) {
+    next if $entry =~ /^\./;
+    my $path = File::Spec->catfile($dir, $entry);
+    next unless -f $path;
+    $path = Mail::SpamAssassin::Util::untaint_file_path($path);
+    push @files, $path;
+  }
+  closedir($dh);
+  return sort @files;
+}
+
+sub process_message {
+  my ($spamtest, $nn_plugin, $file, $use_rules) = @_;
+
+  my $raw;
+  if (!open(my $fh, '<', $file)) {
+    warn "Cannot open $file: $!\n";
+    return (undef, undef, undef, undef, undef);
+  } else {
+    local $/;
+    $raw = <$fh>;
+    close $fh;
+  }
+  return (undef, undef, undef, undef) unless defined $raw && length($raw) > 0;
+
+  my $msg = $spamtest->parse(\$raw);
+  return (undef, undef, undef, undef) unless $msg;
+
+  # Extract From display name and Subject from raw headers
+  my $from_header = $msg->get_header('From') || '';
+  my $from_name = '';
+  if ($from_header =~ /^\s*"?(.+?)"?\s*<[^>]+>/) {
+    $from_name = $1;
+    $from_name =~ s/^\s+|\s+$//g;
+    $from_name =~ s/^"|"$//g;
+  }
+  my $subject = $msg->get_header('Subject') || '';
+  $subject =~ s/^\s+|\s+$//g;
+
+  # Collect attachment filenames
+  my @attach_names;
+  foreach my $part ($msg->find_parts(qr/./, 1)) {
+    my $name = $part->{name};
+    next unless defined $name && length $name;
+    push @attach_names, $name;
+  }
+
+  my %rule_hits;
+  if ($use_rules) {
+    my $pms = $spamtest->check($msg);
+    my $hit_str = $pms->get_names_of_tests_hit();
+    if ($hit_str) {
+      %rule_hits = map { $_ => 1 } split(/,/, $hit_str);
+    }
+    my $sub_str = $pms->get_names_of_subtests_hit();
+    if ($sub_str) {
+      $rule_hits{$_} = 1 for split(/,/, $sub_str);
+    }
+
+    my $text_arr = $msg->get_visible_rendered_body_text_array();
+    my $text = join("\n", @{$text_arr});
+    $pms->finish();
+    $msg->finish();
+    return ($text, \%rule_hits, $from_name, $subject, \@attach_names);
+  } else {
+    my $text_arr = $msg->get_visible_rendered_body_text_array();
+    my $text = join("\n", @{$text_arr});
+    $msg->finish();
+    return ($text, undef, $from_name, $subject, \@attach_names);
+  }
+}
+
+
+=head1 NAME
+
+sa-fann-train - train the SpamAssassin FANN model from message directories
+
+=head1 SYNOPSIS
+
+B<sa-fann-train> --spam <spam-dir> --ham <ham-dir> [options]
+
+Options:
+
+ --spam path                   Directory containing spam messages (required)
+ --ham path                    Directory containing ham messages (required)
+ --epochs N                    Override fann_train_epochs
+ --vocab-cap N                 Override fann_vocab_cap
+ --no-rules                    Skip rule feature collection (text-only model)
+ --progress                    Show progress during message processing
+ --configpath=path, -C path    Path to standard configuration directory
+ --siteconfigpath=path         Path to site configuration directory
+ --prefspath=file, -p file     Path to user preferences file
+ --local, -L                   Use local tests only (no network tests)
+ --debug [area,...], -D        Print debugging messages
+ --help, -h                    Print help message
+ --version, -V                 Print version
+
+=head1 DESCRIPTION
+
+B<sa-fann-train> is a standalone training pipeline for the SpamAssassin
+FANN plugin.  It reads spam and ham message directories directly,
+builds a vocabulary in one pass, computes properly aligned TF-IDF feature
+vectors, and trains a FANN neural network model.
+
+The typical workflow is:
+
+    sa-fann-train --spam /path/to/spam --ham /path/to/ham
+
+The trained model and vocabulary are saved to the C<fann_data_dir>
+directory and will be used automatically by the FANN plugin during
+message scanning.
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--spam> I<path>
+
+Directory containing spam messages.  Required.
+
+=item B<--ham> I<path>
+
+Directory containing ham messages.  Required.
+
+=item B<--epochs> I<N>
+
+Override the C<fann_train_epochs> configuration setting.
+
+=item B<--vocab-cap> I<N>
+
+Override the C<fann_vocab_cap> configuration setting.
+
+=item B<--no-rules>
+
+Skip SpamAssassin rule feature collection.  When specified, only TF-IDF text
+features are used (no rule binary features).  By default, each training message
+is run through SpamAssassin to collect rule hits, which are appended as binary
+features to the TF-IDF vector.  Rules that are not statistically significant
+(chi-squared < 3.841, i.e. p > 0.05) are automatically pruned.
+
+=item B<--progress>
+
+Show progress counter during message processing.
+
+=item B<--configpath>=I<path>, B<-C> I<path>
+
+Use the specified path for locating the configuration files, instead of the
+default configuration file search path.
+
+=item B<--siteconfigpath>=I<path>
+
+Use the specified path for locating site-specific configuration files. The
+default path is determined at build time.
+
+=item B<--prefspath>=I<file>, B<-p> I<file>
+
+Read user score preferences from I<file>.
+
+=item B<--local>, B<-L>
+
+Operate in local-tests-only mode.
+
+=item B<--debug> [I<area,...>], B<-D>
+
+Produce debugging output. If no areas are listed, all debugging information
+is printed. Diagnostic output can also be enabled for each area
+individually; I<area> is the area of the code to instrument.
+
+=item B<--help>, B<-h>
+
+Print help message and exit.
+
+=item B<--version>, B<-V>
+
+Print version and exit.
+
+=back
+
+=head1 SEE ALSO
+
+L<Mail::SpamAssassin::Plugin::FANN(3)>
+
+=cut

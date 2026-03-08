@@ -1,0 +1,239 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use File::Spec;
+use Getopt::Long;
+use Mail::SpamAssassin;
+use Mail::SpamAssassin::Util;
+
+my %opt;
+GetOptions(
+  'configpath|C=s'   => \$opt{configpath},
+  'siteconfigpath=s' => \$opt{siteconfigpath},
+  'prefspath|p=s'    => \$opt{prefspath},
+  'local|L'          => \$opt{local},
+  'misclassified|m'  => \$opt{misclassified},
+  'help|h'           => \$opt{help},
+) or die "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
+
+if ($opt{help}) {
+  print "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
+  exit 0;
+}
+
+my $test_spam_dir = $ARGV[0] || "$ENV{HOME}/Downloads/corpus/split/test/spam";
+my $test_ham_dir  = $ARGV[1] || "$ENV{HOME}/Downloads/corpus/split/test/ham";
+
+# Initialize SpamAssassin
+my $sa = Mail::SpamAssassin->new({
+  rules_filename      => $opt{configpath},
+  site_rules_filename => $opt{siteconfigpath},
+  userprefs_filename  => $opt{prefspath},
+  local_tests_only    => $opt{local} ? 1 : 0,
+  dont_copy_prefs     => 1,
+});
+$sa->init(1);
+
+my %results;
+
+print "Testing spam...\n";
+$results{spam} = test_dir($sa, $test_spam_dir, "spam");
+
+print "Testing ham...\n";
+$results{ham} = test_dir($sa, $test_ham_dir, "ham");
+
+$sa->finish();
+
+print "\n=== FANN Accuracy Report ===\n\n";
+
+my $s = $results{spam};
+my $h = $results{ham};
+
+printf "SPAM test set (%d messages):\n", $s->{total};
+printf "  FANN_SPAM (correct):  %4d  (%5.1f%%)\n", $s->{spam}, pct($s->{spam}, $s->{total});
+printf "  Unknown:              %4d  (%5.1f%%)\n",  $s->{unknown}, pct($s->{unknown}, $s->{total});
+printf "  FANN_HAM  (wrong):    %4d  (%5.1f%%)\n",  $s->{ham},  pct($s->{ham},  $s->{total});
+printf "  Errors:               %4d\n", $s->{errors};
+
+printf "\nHAM test set (%d messages):\n", $h->{total};
+printf "  FANN_HAM  (correct):  %4d  (%5.1f%%)\n", $h->{ham},  pct($h->{ham},  $h->{total});
+printf "  Unknown:              %4d  (%5.1f%%)\n",  $h->{unknown}, pct($h->{unknown}, $h->{total});
+printf "  FANN_SPAM (wrong):    %4d  (%5.1f%%)\n",  $h->{spam}, pct($h->{spam}, $h->{total});
+printf "  Errors:               %4d\n", $h->{errors};
+
+my $total = $s->{total} + $h->{total};
+my $correct = $s->{spam} + $h->{ham};
+my $wrong   = $s->{ham}  + $h->{spam};
+my $unk     = $s->{unknown} + $h->{unknown};
+
+printf "\nOverall (%d messages):\n", $total;
+printf "  Correct:  %4d  (%5.1f%%)\n", $correct, pct($correct, $total);
+printf "  Unknown:  %4d  (%5.1f%%)\n", $unk, pct($unk, $total);
+printf "  Wrong:    %4d  (%5.1f%%)\n", $wrong, pct($wrong, $total);
+
+# Prediction distribution histogram
+print "\n=== Prediction Distribution ===\n\n";
+print_histogram($s->{predictions}, $h->{predictions});
+
+if ($opt{misclassified}) {
+  print_misclassified("False Positives (ham hit FANN_SPAM)", $h->{misclassified});
+  print_misclassified("False Negatives (spam hit FANN_HAM)", $s->{misclassified});
+  print_misclassified("Unknown Spam (spam, no decision)", $s->{unknowns});
+  print_misclassified("Unknown Ham (ham, no decision)", $h->{unknowns});
+}
+
+sub pct {
+  my ($n, $d) = @_;
+  return 0 unless $d;
+  return 100.0 * $n / $d;
+}
+
+sub print_histogram {
+  my ($spam_preds, $ham_preds) = @_;
+
+  # Bucket predictions into 10 bins: 0.0-0.1, 0.1-0.2, ..., 0.9-1.0
+  my @spam_bins = (0) x 10;
+  my @ham_bins  = (0) x 10;
+
+  for my $p (@$spam_preds) {
+    my $bin = int($p * 10);
+    $bin = 9 if $bin > 9;
+    $bin = 0 if $bin < 0;
+    $spam_bins[$bin]++;
+  }
+  for my $p (@$ham_preds) {
+    my $bin = int($p * 10);
+    $bin = 9 if $bin > 9;
+    $bin = 0 if $bin < 0;
+    $ham_bins[$bin]++;
+  }
+
+  my $max = 0;
+  for my $i (0..9) {
+    $max = $spam_bins[$i] if $spam_bins[$i] > $max;
+    $max = $ham_bins[$i]  if $ham_bins[$i]  > $max;
+  }
+  my $bar_width = 40;
+
+  printf "  %-9s  %5s %s    %5s %s\n", "Range", "Spam", "", "Ham", "";
+  for my $i (0..9) {
+    my $lo = $i / 10;
+    my $hi = ($i + 1) / 10;
+    my $spam_bar = $max > 0 ? int($spam_bins[$i] / $max * $bar_width + 0.5) : 0;
+    my $ham_bar  = $max > 0 ? int($ham_bins[$i]  / $max * $bar_width + 0.5) : 0;
+    printf "  %.1f-%.1f  %5d %-${bar_width}s  %5d %-${bar_width}s\n",
+      $lo, $hi,
+      $spam_bins[$i], '#' x $spam_bar,
+      $ham_bins[$i],  '#' x $ham_bar;
+  }
+}
+
+sub print_misclassified {
+  my ($title, $items) = @_;
+  return unless @$items;
+
+  # Sort by prediction confidence (most confident mistakes first)
+  my @sorted = sort {
+    abs($b->{prediction} - 0.5) <=> abs($a->{prediction} - 0.5)
+  } @$items;
+
+  print "\n=== $title (" . scalar(@sorted) . ") ===\n\n";
+  for my $m (@sorted) {
+    printf "  %-30s  pred=%.4f\n", $m->{file}, $m->{prediction};
+    printf "    From:    %s\n", $m->{from};
+    printf "    Subject: %s\n", $m->{subject};
+    printf "    Rules:   %s\n", join(', ', @{$m->{rules}}) || '(none)';
+    print "\n";
+  }
+}
+
+sub test_dir {
+  my ($sa, $dir, $label) = @_;
+
+  opendir(my $dh, $dir) or die "Cannot open $dir: $!\n";
+  my @files = sort grep { !/^\./ && -f "$dir/$_" } readdir($dh);
+  closedir($dh);
+
+  my %counts = (
+    total   => scalar(@files),
+    spam    => 0,
+    ham     => 0,
+    unknown => 0,
+    errors  => 0,
+  );
+  my @predictions;
+  my @misclassified;
+  my @unknowns;
+  my $done = 0;
+
+  for my $file (@files) {
+    my $path = File::Spec->catfile($dir, $file);
+    $path = Mail::SpamAssassin::Util::untaint_file_path($path);
+
+    my $raw;
+    if (!open(my $fh, '<', $path)) {
+      warn "Cannot open $path: $!\n";
+      $counts{errors}++;
+      next;
+    } else {
+      local $/;
+      $raw = <$fh>;
+      close $fh;
+    }
+
+    eval {
+      my $msg = $sa->parse(\$raw);
+      my $pms = $sa->check($msg);
+      my $hit_str = $pms->get_names_of_tests_hit() || '';
+
+      if (defined $pms->{fann_prediction}) {
+        push @predictions, $pms->{fann_prediction};
+      }
+
+      # Classify by which FANN rule fired
+      my $category;
+      if ($hit_str =~ /\bFANN_SPAM\b/)    { $counts{spam}++; $category = 'spam'; }
+      elsif ($hit_str =~ /\bFANN_HAM\b/)  { $counts{ham}++;  $category = 'ham'; }
+      else { $counts{unknown}++; $category = 'unknown'; }
+
+      my $is_wrong = ($category eq 'spam' && $label eq 'ham')
+                   || ($category eq 'ham'  && $label eq 'spam');
+
+      if ($opt{misclassified} && ($is_wrong || $category eq 'unknown')) {
+        my $from = $msg->get_header('From') || '';
+        $from =~ s/\s+$//;
+        my $subject = $msg->get_header('Subject') || '';
+        $subject =~ s/\s+$//;
+        my @rules = grep { !/^FANN_/ } split(/,/, $hit_str);
+        my $entry = {
+          file       => $file,
+          prediction => $pms->{fann_prediction},
+          from       => $from,
+          subject    => $subject,
+          rules      => \@rules,
+        };
+        if ($is_wrong) {
+          push @misclassified, $entry;
+        } else {
+          push @unknowns, $entry;
+        }
+      }
+
+      $pms->finish();
+      $msg->finish();
+      1;
+    } or do {
+      $counts{errors}++;
+    };
+
+    $done++;
+    printf STDERR "\r  %s: %d/%d", $label, $done, $counts{total} if -t STDERR;
+  }
+  print STDERR "\r" . (" " x 40) . "\r" if -t STDERR;
+
+  $counts{predictions} = \@predictions;
+  $counts{misclassified} = \@misclassified;
+  $counts{unknowns} = \@unknowns;
+  return \%counts;
+}
