@@ -15,6 +15,9 @@ GetOptions(
   'help|h'   => \$opt{help},
 ) or die "Usage: sa-fann-dump [--path vocabulary.data] [--prefix body:] [--rules] [--chi2] [--top N]\n";
 
+# --rules is shorthand for --prefix rule:
+$opt{prefix} = 'rule:' if $opt{rules};
+
 if ($opt{help}) {
   print <<'USAGE';
 Usage: sa-fann-dump [options]
@@ -22,7 +25,7 @@ Usage: sa-fann-dump [options]
 Options:
   --path file     Path to vocabulary.data (default: ~/.spamassassin/fann_data/vocabulary.data)
   --prefix str    Show only terms with this prefix (e.g. body:, subj:, from:, attach:)
-  --rules         Show rule terms instead of text terms
+  --rules         Shorthand for --prefix rule:
   --chi2          Sort by chi-squared score (most discriminative first)
   --top N         Show only the top N terms (use with --chi2)
   -h, --help      Show this help
@@ -38,13 +41,6 @@ my $vocab = retrieve($vocab_path) or die "Failed to load $vocab_path\n";
 
 printf "Messages: %d (%d spam, %d ham)\n",
   $vocab->{_doc_count}, $vocab->{_spam_count}, $vocab->{_ham_count};
-
-if ($opt{rules}) {
-  my @rules = @{ $vocab->{rule_terms} || [] };
-  printf "Rule terms: %d\n\n", scalar @rules;
-  print "$_\n" for @rules;
-  exit 0;
-}
 
 my %terms = %{ $vocab->{terms} || {} };
 my @keys = sort keys %terms;
@@ -74,7 +70,7 @@ if ($opt{chi2}) {
   }
 }
 
-printf "Text terms: %d\n\n", scalar @keys;
+printf "Terms: %d\n\n", scalar @keys;
 
 if ($opt{chi2}) {
   printf "%-30s  %10s  %6s  %6s  %s\n", "Term", "Chi2", "Spam", "Ham", "Bias";

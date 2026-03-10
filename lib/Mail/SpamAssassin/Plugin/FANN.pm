@@ -268,7 +268,6 @@ sub finish_parsing_end {
           vocab_keys  => \@vocab_keys,
           vocab_index => \%vocab_index,
           idf         => \%idf,
-          rule_terms  => $vocabulary{rule_terms} || [],
           spam_count  => $vocabulary{_spam_count},
           ham_count   => $vocabulary{_ham_count},
         };
@@ -461,30 +460,23 @@ sub _run_fann_prediction {
       push @tokens, $self->tokenize_filename($name, 'attach:');
     }
 
+    # Add rule: tokens from rule hits
+    my $hit_str = $pms->get_names_of_tests_hit();
+    if ($hit_str) {
+      push @tokens, map { "rule:$_" } split(/,/, $hit_str);
+    }
+    my $sub_str = $pms->get_names_of_subtests_hit();
+    if ($sub_str) {
+      push @tokens, map { "rule:$_" } split(/,/, $sub_str);
+    }
+
     my $vec = $self->compute_tfidf_vector(\@tokens, $vocab_keys, $vocab_index, $idf);
     @tfidf_vec = @$vec;
   } else {
     @tfidf_vec = (0) x $vocab_size;
   }
 
-  # Build binary rule feature vector (empty if no rule_terms)
-  my $rule_terms = $vocab->{rule_terms};
-  my @rule_vec;
-  if (@$rule_terms) {
-    my %hits;
-    my $hit_str = $pms->get_names_of_tests_hit();
-    if ($hit_str) {
-      %hits = map { $_ => 1 } split(/,/, $hit_str);
-    }
-    my $sub_str = $pms->get_names_of_subtests_hit();
-    if ($sub_str) {
-      $hits{$_} = 1 for split(/,/, $sub_str);
-    }
-    @rule_vec = map { $hits{$_} ? 1 : 0 } @$rule_terms;
-  }
-
-  # Concatenate: [TF-IDF | rule binary]
-  my @combined = (@tfidf_vec, @rule_vec);
+  my @combined = @tfidf_vec;
   unless (@combined) {
     $pms->{fann_prediction} = undef;
     dbg("No features available");

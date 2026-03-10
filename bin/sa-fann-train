@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w -T
+#!/usr/bin/env perl -T
 #
 # Copyright 2024 MXGuardian
 #
@@ -29,7 +29,8 @@ use POSIX qw(locale_h setsid sigprocmask _exit);
 POSIX::setlocale(LC_TIME,'C');
 
 use AI::FANN qw(:all);
-use Storable qw(store);
+use Storable qw(store retrieve);
+use File::Temp qw(tempdir);
 
 use Mail::SpamAssassin;
 use Mail::SpamAssassin::Util;
@@ -54,6 +55,7 @@ GetOptions(
   'prefspath|p=s'      => \$opt{'prefspath'},
   'no-rules'           => \$opt{'no_rules'},
   'hidden=i'           => \$opt{'hidden'},
+  'jobs|j=i'           => \$opt{'jobs'},
   'progress'           => \$opt{'progress'},
   'debug|D:s'          => \$opt{'debug'},
   'local|L'            => \$opt{'local'},
@@ -144,126 +146,146 @@ die "No ham files found in $ham_dir\n"   unless @ham_files;
 print "Found " . scalar(@spam_files) . " spam files, " . scalar(@ham_files) . " ham files\n";
 
 # Phase 1: Read all messages, build vocabulary, and collect rule hits
-print "Phase 1: Building vocabulary" . ($use_rules ? " and collecting rule hits" : "") . "...\n";
-my %vocabulary_terms;  # term => { total => N, docs => N }
-my %all_rules_seen;    # rule_name => 1
+my $num_jobs = $opt{'jobs'} || 1;
+print "Phase 1: Building vocabulary" . ($use_rules ? " and collecting rule hits" : "") .
+      ($num_jobs > 1 ? " ($num_jobs workers)" : "") . "...\n";
+
+my @all_entries = (
+  (map { [$_, 1] } @spam_files),
+  (map { [$_, 0] } @ham_files),
+);
+
+my %vocabulary_terms;
 my $total_docs = 0;
 my $spam_count = 0;
 my $ham_count  = 0;
+my @all_messages;
 
-# Store tokenized messages for phase 2
-my @all_messages;  # [ { tokens => \@tokens, label => 0|1, rule_hits => \%hits } ]
+if ($num_jobs <= 1) {
+  # Single-process mode
+  my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $use_rules, $min_text_len, $opt{'progress'});
+  %vocabulary_terms = %{ $results->{vocabulary_terms} };
+  $total_docs = $results->{total_docs};
+  $spam_count = $results->{spam_count};
+  $ham_count  = $results->{ham_count};
+  @all_messages = @{ $results->{messages} };
+} else {
+  # Multi-process mode: split work across forked workers
+  my $tmpdir = tempdir(CLEANUP => 1);
+  $tmpdir = Mail::SpamAssassin::Util::untaint_file_path($tmpdir);
 
-my $total_files = scalar(@spam_files) + scalar(@ham_files);
-my $files_done = 0;
-
-for my $entry (
-  (map { [$_, 1] } @spam_files),
-  (map { [$_, 0] } @ham_files),
-) {
-  my ($file, $label) = @$entry;
-  $files_done++;
-  if ($opt{'progress'} && -t STDERR) {
-    printf STDERR "\r  %d/%d", $files_done, $total_files;
+  # Split entries into chunks
+  my @chunks;
+  for my $i (0 .. $num_jobs - 1) {
+    $chunks[$i] = [];
+  }
+  for my $i (0 .. $#all_entries) {
+    push @{ $chunks[$i % $num_jobs] }, $all_entries[$i];
   }
 
-  my ($text, $rule_hits, $from_name, $subject, $attach_names) = process_message($spamtest, $nn_plugin, $file, $use_rules);
-  next unless defined $text && length($text) >= $min_text_len;
+  # Fork workers
+  my @pids;
+  for my $job_id (0 .. $num_jobs - 1) {
+    next unless @{ $chunks[$job_id] };
+    my $pid = fork();
+    die "Failed to fork: $!\n" unless defined $pid;
 
-  my @tokens = $nn_plugin->tokenize_text($text, 'body:');
-  if (defined $from_name && length $from_name) {
-    push @tokens, $nn_plugin->tokenize_text($from_name, 'from:');
+    if ($pid == 0) {
+      # Child process: create own SpamAssassin instance
+      my $child_sa = Mail::SpamAssassin->new({
+        rules_filename      => $opt{'configpath'},
+        site_rules_filename => $opt{'siteconfigpath'},
+        userprefs_filename  => $opt{'prefspath'},
+        debug               => $opt{'debug'},
+        local_tests_only    => $opt{'local'},
+        dont_copy_prefs     => 1,
+      });
+      $child_sa->init(1);
+      $child_sa->{conf}->{use_bayes} = 0;
+
+      my $child_plugin;
+      foreach my $plugin (@{$child_sa->{plugins}->{plugins}}) {
+        if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+          $child_plugin = $plugin;
+          last;
+        }
+      }
+      die "FANN plugin not loaded in child\n" unless $child_plugin;
+      $child_plugin->{training_mode} = 1;
+
+      my $results = process_batch($child_sa, $child_plugin, $chunks[$job_id],
+                                  $use_rules, $min_text_len, $opt{'progress'});
+
+      my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+      $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+      store($results, $out_path) or die "Worker $job_id: failed to store results\n";
+      $child_sa->finish();
+      _exit(0);
+    }
+    push @pids, $pid;
   }
-  if (defined $subject && length $subject) {
-    push @tokens, $nn_plugin->tokenize_text($subject, 'subj:');
-  }
-  if ($attach_names && @$attach_names) {
-    for my $name (@$attach_names) {
-      push @tokens, $nn_plugin->tokenize_filename($name, 'attach:');
+
+  # Wait for all workers
+  for my $pid (@pids) {
+    waitpid($pid, 0);
+    if ($? != 0) {
+      die "Worker process $pid exited with status $?\n";
     }
   }
-  next unless @tokens;
+  print STDERR "\r" . (" " x 40) . "\r" if $opt{'progress'} && -t STDERR;
 
-  $total_docs++;
-  if ($label) { $spam_count++; } else { $ham_count++; }
+  # Merge results from all workers
+  for my $job_id (0 .. $num_jobs - 1) {
+    my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+    $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+    next unless -f $out_path;
+    my $results = retrieve($out_path) or die "Failed to load worker $job_id results\n";
 
-  # Accumulate vocabulary statistics
-  my %seen;
-  foreach my $t (@tokens) {
-    $vocabulary_terms{$t}{total} = ($vocabulary_terms{$t}{total} || 0) + 1;
-    $seen{$t} = 1;
-  }
-  foreach my $t (keys %seen) {
-    $vocabulary_terms{$t}{docs} = ($vocabulary_terms{$t}{docs} || 0) + 1;
-    if ($label) {
-      $vocabulary_terms{$t}{spam} = ($vocabulary_terms{$t}{spam} || 0) + 1;
-    } else {
-      $vocabulary_terms{$t}{ham} = ($vocabulary_terms{$t}{ham} || 0) + 1;
-    }
-  }
+    $total_docs += $results->{total_docs};
+    $spam_count += $results->{spam_count};
+    $ham_count  += $results->{ham_count};
+    push @all_messages, @{ $results->{messages} };
 
-  # Track per-rule spam/ham counts
-  if ($rule_hits) {
-    for my $r (keys %$rule_hits) {
-      $all_rules_seen{$r}{total} = ($all_rules_seen{$r}{total} || 0) + 1;
-      if ($label) {
-        $all_rules_seen{$r}{spam} = ($all_rules_seen{$r}{spam} || 0) + 1;
-      } else {
-        $all_rules_seen{$r}{ham} = ($all_rules_seen{$r}{ham} || 0) + 1;
+    # Merge vocabulary counts
+    my $worker_vocab = $results->{vocabulary_terms};
+    for my $t (keys %$worker_vocab) {
+      for my $k (qw(total docs spam ham)) {
+        $vocabulary_terms{$t}{$k} = ($vocabulary_terms{$t}{$k} || 0) + ($worker_vocab->{$t}{$k} || 0);
       }
     }
   }
-
-  push @all_messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits };
 }
 
-print STDERR "\r" . (" " x 40) . "\r" if $opt{'progress'} && -t STDERR;
 print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
 print "Raw vocabulary: " . scalar(keys %vocabulary_terms) . " terms\n";
-print "Rules seen: " . scalar(keys %all_rules_seen) . "\n" if $use_rules;
-
-# Build rule vocabulary, pruned by chi-squared significance
-# Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
-my $rule_chi2_threshold = 3.841;
-my @rule_terms;
-if ($use_rules) {
-  my %rule_chi2;
-  foreach my $r (keys %all_rules_seen) {
-    my $a = $all_rules_seen{$r}{spam} || 0;
-    my $b = $all_rules_seen{$r}{ham}  || 0;
-    my $c = $spam_count - $a;
-    my $d = $ham_count  - $b;
-    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
-    if ($denom > 0) {
-      $rule_chi2{$r} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
-    } else {
-      $rule_chi2{$r} = 0;
-    }
-  }
-  my $raw_rule_count = scalar keys %all_rules_seen;
-  @rule_terms = sort grep { $rule_chi2{$_} >= $rule_chi2_threshold } keys %all_rules_seen;
-  my $kept = scalar @rule_terms;
-  print "Rules: $raw_rule_count seen, $kept kept (chi-squared >= $rule_chi2_threshold)\n";
-}
-my $rule_vocab_size = scalar @rule_terms;
+my @rule_keys = sort grep { /^rule:/ } keys %vocabulary_terms;
+print "Rules seen: " . scalar(@rule_keys) . "\n" if $use_rules;
 
 # Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
-my $terms_count = scalar keys %vocabulary_terms;
-if ($terms_count > $vocab_cap) {
-  # Chi-squared feature selection: rank terms by correlation with spam/ham
-  my %chi2;
-  foreach my $t (keys %vocabulary_terms) {
-    my $a = $vocabulary_terms{$t}{spam} || 0;  # spam docs with term
-    my $b = $vocabulary_terms{$t}{ham}  || 0;  # ham docs with term
-    my $c = $spam_count - $a;                  # spam docs without term
-    my $d = $ham_count  - $b;                  # ham docs without term
-    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
-    if ($denom > 0) {
-      $chi2{$t} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
-    } else {
-      $chi2{$t} = 0;
-    }
+# Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
+my $chi2_threshold = 3.841;
+my %chi2;
+foreach my $t (keys %vocabulary_terms) {
+  my $a = $vocabulary_terms{$t}{spam} || 0;  # spam docs with term
+  my $b = $vocabulary_terms{$t}{ham}  || 0;  # ham docs with term
+  my $c = $spam_count - $a;                  # spam docs without term
+  my $d = $ham_count  - $b;                  # ham docs without term
+  my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+  if ($denom > 0) {
+    $chi2{$t} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
+  } else {
+    $chi2{$t} = 0;
   }
+}
+
+# Remove terms below chi-squared significance threshold
+my $before_prune = scalar keys %vocabulary_terms;
+delete $vocabulary_terms{$_} for grep { $chi2{$_} < $chi2_threshold } keys %vocabulary_terms;
+my $after_sig = scalar keys %vocabulary_terms;
+print "Pruned $before_prune -> $after_sig terms (chi-squared >= $chi2_threshold)\n";
+
+# If still over vocab_cap, keep only the top terms
+if ($after_sig > $vocab_cap) {
   my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vocabulary_terms;
   my %pruned;
   for my $i (0 .. $vocab_cap-1) {
@@ -271,7 +293,7 @@ if ($terms_count > $vocab_cap) {
     $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
   }
   %vocabulary_terms = %pruned;
-  print "Pruned vocabulary to $vocab_cap terms (chi-squared selection)\n";
+  print "Capped vocabulary to $vocab_cap terms\n";
 }
 
 # Build vocab index and IDF values
@@ -287,32 +309,29 @@ foreach my $w (@vocab_keys) {
   $idf{$w} = log( ($N + 1) / ($df + 1) ) + 1;
 }
 
-# Phase 3: Compute combined feature vectors (TF-IDF + rule binary)
-my $total_input_size = $vocab_size + $rule_vocab_size;
+# Phase 3: Compute feature vectors
 print "Phase 2: Computing feature vectors...\n";
 my (@train_vectors, @train_labels);
 
 foreach my $msg (@all_messages) {
-  my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
-
-  # Append binary rule features
-  if (@rule_terms) {
-    my $hits = $msg->{rule_hits} || {};
-    my @rule_vec = map { $hits->{$_} ? 1 : 0 } @rule_terms;
-    push @$vec, @rule_vec;
+  # Add rule: tokens from rule hits
+  my @all_tokens = @{$msg->{tokens}};
+  if ($msg->{rule_hits}) {
+    push @all_tokens, map { "rule:$_" } keys %{$msg->{rule_hits}};
   }
 
+  my $vec = $nn_plugin->compute_tfidf_vector(\@all_tokens, \@vocab_keys, \%vocab_index, \%idf);
   push @train_vectors, $vec;
   push @train_labels, $msg->{label};
 }
 
-print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $total_input_size)\n";
+print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $vocab_size)\n";
 
 # Phase 3: Create and train FANN network
 print "Phase 3: Training neural network...\n";
-my $num_hidden = $opt{'hidden'} || int(sqrt($total_input_size)) || 1;
+my $num_hidden = $opt{'hidden'} || int(sqrt($vocab_size)) || 1;
 
-my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
+my $network = AI::FANN->new_standard($vocab_size, $num_hidden, 1);
 $network->hidden_activation_function(FANN_SIGMOID_STEPWISE);
 $network->output_activation_function(FANN_SIGMOID_STEPWISE);
 $network->learning_rate($learning_rate);
@@ -326,7 +345,9 @@ for my $i (0 .. $#train_vectors) {
 }
 my $train_data = AI::FANN::TrainData->new(@td_args);
 
-print "Training: $total_input_size inputs ($vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
+my $rule_vocab_size = scalar grep { /^rule:/ } @vocab_keys;
+my $text_vocab_size = $vocab_size - $rule_vocab_size;
+print "Training: $vocab_size inputs ($text_vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
 $network->train_on_data($train_data, $train_epochs, 0, 0);
 
 # Save model
@@ -342,7 +363,6 @@ eval {
 # Save vocabulary
 my %vocabulary = (
   terms       => \%vocabulary_terms,
-  rule_terms  => \@rule_terms,
   _doc_count  => $total_docs,
   _spam_count => $spam_count,
   _ham_count  => $ham_count,
@@ -356,14 +376,14 @@ eval {
 } or do {
   die "Failed to store vocabulary to $vocab_path: " . ($@ || 'unknown') . "\n";
 };
-print "Vocabulary saved to $vocab_path ($vocab_size text terms, $rule_vocab_size rule terms)\n";
+print "Vocabulary saved to $vocab_path ($text_vocab_size text terms, $rule_vocab_size rule terms)\n";
 
 my $elapsed = time() - $start_time;
 print "\nTraining complete:\n";
 print "  Messages:      $total_docs ($spam_count spam, $ham_count ham)\n";
-print "  Text vocab:    $vocab_size terms\n";
+print "  Text vocab:    $text_vocab_size terms\n";
 print "  Rule features: $rule_vocab_size\n";
-print "  Total inputs:  $total_input_size\n";
+print "  Total inputs:  $vocab_size\n";
 print "  Hidden units:  $num_hidden\n";
 print "  Epochs:        $train_epochs\n";
 print "  Model saved:   $dataset_path\n";
@@ -374,6 +394,89 @@ exit 0;
 
 
 # --- Helper functions ---
+
+sub process_batch {
+  my ($sa, $plugin, $entries, $use_rules, $min_text_len, $show_progress) = @_;
+
+  my %vocab;
+  my $total_docs = 0;
+  my $spam_count = 0;
+  my $ham_count  = 0;
+  my @messages;
+
+  my $total_files = scalar @$entries;
+  my $files_done = 0;
+
+  for my $entry (@$entries) {
+    my ($file, $label) = @$entry;
+    $files_done++;
+    if ($show_progress && -t STDERR) {
+      printf STDERR "\r  %d/%d", $files_done, $total_files;
+    }
+
+    my ($text, $rule_hits, $from_name, $subject, $attach_names) =
+      process_message($sa, $plugin, $file, $use_rules);
+    next unless defined $text && length($text) >= $min_text_len;
+
+    my @tokens = $plugin->tokenize_text($text, 'body:');
+    if (defined $from_name && length $from_name) {
+      push @tokens, $plugin->tokenize_text($from_name, 'from:');
+    }
+    if (defined $subject && length $subject) {
+      push @tokens, $plugin->tokenize_text($subject, 'subj:');
+    }
+    if ($attach_names && @$attach_names) {
+      for my $name (@$attach_names) {
+        push @tokens, $plugin->tokenize_filename($name, 'attach:');
+      }
+    }
+    next unless @tokens;
+
+    $total_docs++;
+    if ($label) { $spam_count++; } else { $ham_count++; }
+
+    # Accumulate vocabulary statistics
+    my %seen;
+    foreach my $t (@tokens) {
+      $vocab{$t}{total} = ($vocab{$t}{total} || 0) + 1;
+      $seen{$t} = 1;
+    }
+    foreach my $t (keys %seen) {
+      $vocab{$t}{docs} = ($vocab{$t}{docs} || 0) + 1;
+      if ($label) {
+        $vocab{$t}{spam} = ($vocab{$t}{spam} || 0) + 1;
+      } else {
+        $vocab{$t}{ham} = ($vocab{$t}{ham} || 0) + 1;
+      }
+    }
+
+    # Track rule hits as rule: prefixed terms
+    if ($rule_hits) {
+      for my $r (keys %$rule_hits) {
+        my $rt = "rule:$r";
+        $vocab{$rt}{total} = ($vocab{$rt}{total} || 0) + 1;
+        $vocab{$rt}{docs} = ($vocab{$rt}{docs} || 0) + 1;
+        if ($label) {
+          $vocab{$rt}{spam} = ($vocab{$rt}{spam} || 0) + 1;
+        } else {
+          $vocab{$rt}{ham} = ($vocab{$rt}{ham} || 0) + 1;
+        }
+      }
+    }
+
+    push @messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits };
+  }
+
+  print STDERR "\r" . (" " x 40) . "\r" if $show_progress && -t STDERR;
+
+  return {
+    vocabulary_terms => \%vocab,
+    total_docs       => $total_docs,
+    spam_count       => $spam_count,
+    ham_count        => $ham_count,
+    messages         => \@messages,
+  };
+}
 
 sub collect_files {
   my ($dir) = @_;
@@ -467,6 +570,7 @@ Options:
  --epochs N                    Override fann_train_epochs
  --vocab-cap N                 Override fann_vocab_cap
  --no-rules                    Skip rule feature collection (text-only model)
+ --jobs N, -j N                Number of parallel workers (default: 1)
  --progress                    Show progress during message processing
  --configpath=path, -C path    Path to standard configuration directory
  --siteconfigpath=path         Path to site configuration directory
@@ -518,6 +622,13 @@ features are used (no rule binary features).  By default, each training message
 is run through SpamAssassin to collect rule hits, which are appended as binary
 features to the TF-IDF vector.  Rules that are not statistically significant
 (chi-squared < 3.841, i.e. p > 0.05) are automatically pruned.
+
+=item B<--jobs> I<N>, B<-j> I<N>
+
+Number of parallel worker processes for Phase 1 (message processing and
+vocabulary building).  Each worker creates its own SpamAssassin instance.
+Useful when network tests are enabled, as workers spend most of their time
+waiting on DNS lookups.  Default: 1.
 
 =item B<--progress>
 
