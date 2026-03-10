@@ -10,17 +10,21 @@ GetOptions(
   'path=s'   => \$opt{path},
   'prefix=s' => \$opt{prefix},
   'rules'    => \$opt{rules},
+  'chi2'     => \$opt{chi2},
+  'top=i'    => \$opt{top},
   'help|h'   => \$opt{help},
-) or die "Usage: fann-dump-vocab [--path vocabulary.data] [--prefix body:] [--rules]\n";
+) or die "Usage: sa-fann-dump [--path vocabulary.data] [--prefix body:] [--rules] [--chi2] [--top N]\n";
 
 if ($opt{help}) {
   print <<'USAGE';
-Usage: fann-dump-vocab [options]
+Usage: sa-fann-dump [options]
 
 Options:
   --path file     Path to vocabulary.data (default: ~/.spamassassin/fann_data/vocabulary.data)
   --prefix str    Show only terms with this prefix (e.g. body:, subj:, from:, attach:)
   --rules         Show rule terms instead of text terms
+  --chi2          Sort by chi-squared score (most discriminative first)
+  --top N         Show only the top N terms (use with --chi2)
   -h, --help      Show this help
 
 USAGE
@@ -49,14 +53,46 @@ if (defined $opt{prefix}) {
   @keys = grep { index($_, $opt{prefix}) == 0 } @keys;
 }
 
-printf "Text terms: %d\n\n", scalar @keys;
-printf "%-30s  %6s  %6s  %6s\n", "Term", "Total", "Spam", "Ham";
-printf "%-30s  %6s  %6s  %6s\n", "-" x 30, "-" x 6, "-" x 6, "-" x 6;
+my $spam_count = $vocab->{_spam_count} || 0;
+my $ham_count  = $vocab->{_ham_count}  || 0;
+my $total_docs = $vocab->{_doc_count}  || 0;
 
-for my $t (@keys) {
-  printf "%-30s  %6d  %6d  %6d\n",
-    $t,
-    $terms{$t}{total} || 0,
-    $terms{$t}{spam}  || 0,
-    $terms{$t}{ham}   || 0;
+# Compute chi-squared scores
+my %chi2;
+if ($opt{chi2}) {
+  for my $t (@keys) {
+    my $a = $terms{$t}{spam} || 0;
+    my $b = $terms{$t}{ham}  || 0;
+    my $c = $spam_count - $a;
+    my $d = $ham_count  - $b;
+    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+    $chi2{$t} = $denom > 0 ? $total_docs * ($a * $d - $b * $c) ** 2 / $denom : 0;
+  }
+  @keys = sort { $chi2{$b} <=> $chi2{$a} } @keys;
+  if ($opt{top}) {
+    splice(@keys, $opt{top}) if @keys > $opt{top};
+  }
+}
+
+printf "Text terms: %d\n\n", scalar @keys;
+
+if ($opt{chi2}) {
+  printf "%-30s  %10s  %6s  %6s  %s\n", "Term", "Chi2", "Spam", "Ham", "Bias";
+  printf "%-30s  %10s  %6s  %6s  %s\n", "-" x 30, "-" x 10, "-" x 6, "-" x 6, "-" x 4;
+  for my $t (@keys) {
+    my $spam = $terms{$t}{spam} || 0;
+    my $ham  = $terms{$t}{ham}  || 0;
+    my $bias = $spam > $ham ? 'SPAM' : $ham > $spam ? 'HAM' : '-';
+    printf "%-30s  %10.2f  %6d  %6d  %s\n", $t, $chi2{$t}, $spam, $ham, $bias;
+  }
+} else {
+  printf "%-30s  %6s  %6s  %6s\n", "Term", "Total", "Spam", "Ham";
+  printf "%-30s  %6s  %6s  %6s\n", "-" x 30, "-" x 6, "-" x 6, "-" x 6;
+  for my $t (@keys) {
+    printf "%-30s  %6d  %6d  %6d\n",
+      $t,
+      $terms{$t}{total} || 0,
+      $terms{$t}{spam}  || 0,
+      $terms{$t}{ham}   || 0;
+  }
 }
