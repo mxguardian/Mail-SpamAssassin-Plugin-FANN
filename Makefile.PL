@@ -9,7 +9,7 @@ WriteMakefile(
     AUTHOR             => 'MXGuardian',
     LICENSE            => 'apache_2_0',
     MIN_PERL_VERSION   => '5.014',
-    EXE_FILES          => ['bin/sa-fann-train'],
+    EXE_FILES          => ['bin/sa-fann-train', 'bin/sa-fann-dump'],
     PREREQ_PM          => {
         'Mail::SpamAssassin' => '4.0',
         'AI::FANN'           => 0,

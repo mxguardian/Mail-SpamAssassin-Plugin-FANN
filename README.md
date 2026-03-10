@@ -102,14 +102,14 @@ Messages should be one file per message. The tool:
 
 ## Utilities
 
-### fann-dump-vocab
+### sa-fann-dump
 
 Inspect the trained vocabulary:
 
 ```bash
-fann-dump-vocab --path /var/lib/spamassassin/fann/vocabulary.data
-fann-dump-vocab --prefix body:    # show only body tokens
-fann-dump-vocab --rules           # show rule features
+sa-fann-dump --path /var/lib/spamassassin/fann/vocabulary.data
+sa-fann-dump --prefix body:    # show only body tokens
+sa-fann-dump --rules           # show rule features
 ```
 
 ### fann-split-corpus
