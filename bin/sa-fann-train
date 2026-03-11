@@ -67,7 +67,8 @@ if ($opt{'help'}) {
 }
 
 if ($opt{'version'}) {
-  print "sa-fann-train version " . Mail::SpamAssassin->Version() . "\n";
+  require Mail::SpamAssassin::Plugin::FANN;
+  print "sa-fann-train version $Mail::SpamAssassin::Plugin::FANN::VERSION (SpamAssassin " . Mail::SpamAssassin->Version() . ")\n";
   exit 0;
 }
 
@@ -256,8 +257,7 @@ if ($num_jobs <= 1) {
 
 print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
 print "Raw vocabulary: " . scalar(keys %vocabulary_terms) . " terms\n";
-my @rule_keys = sort grep { /^rule:/ } keys %vocabulary_terms;
-print "Rules seen: " . scalar(@rule_keys) . "\n";
+print "Rules seen: " . scalar(grep { /^rule:/ } keys %vocabulary_terms) . "\n";
 
 # Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
 # Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
@@ -294,12 +294,16 @@ if ($after_sig > $vocab_cap) {
   print "Capped vocabulary to $vocab_cap terms\n";
 }
 
-# Build vocab index and IDF values
-my @vocab_keys = sort keys %vocabulary_terms;
+# Split vocabulary into text terms (TF-IDF) and rule terms (binary)
+my @vocab_keys = sort grep { !/^rule:/ } keys %vocabulary_terms;
+my @rule_keys  = sort grep { /^rule:/ } keys %vocabulary_terms;
 my $vocab_size = scalar @vocab_keys;
+my $rule_vocab_size = scalar @rule_keys;
+my $total_input_size = $vocab_size + $rule_vocab_size;
 die "Empty vocabulary after processing -- check that messages have enough text\n" unless $vocab_size > 0;
 
 my %vocab_index = map { $vocab_keys[$_] => $_ } 0..$#vocab_keys;
+my %rule_index  = map { $rule_keys[$_] => $_ } 0..$#rule_keys;
 my $N = $total_docs || 1;
 my %idf;
 foreach my $w (@vocab_keys) {
@@ -307,29 +311,30 @@ foreach my $w (@vocab_keys) {
   $idf{$w} = log( ($N + 1) / ($df + 1) ) + 1;
 }
 
-# Phase 3: Compute feature vectors
+# Phase 3: Compute feature vectors (TF-IDF for text, binary for rules)
 print "Phase 2: Computing feature vectors...\n";
 my (@train_vectors, @train_labels);
 
 foreach my $msg (@all_messages) {
-  # Add rule: tokens from rule hits
-  my @all_tokens = @{$msg->{tokens}};
-  if ($msg->{rule_hits}) {
-    push @all_tokens, map { "rule:$_" } keys %{$msg->{rule_hits}};
+  my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
+
+  # Append binary rule features
+  if (@rule_keys) {
+    my $hits = $msg->{rule_hits} || {};
+    push @$vec, map { $hits->{ substr($_, 5) } ? 1 : 0 } @rule_keys;
   }
 
-  my $vec = $nn_plugin->compute_tfidf_vector(\@all_tokens, \@vocab_keys, \%vocab_index, \%idf);
   push @train_vectors, $vec;
   push @train_labels, $msg->{label};
 }
 
-print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $vocab_size)\n";
+print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $total_input_size)\n";
 
 # Phase 3: Create and train FANN network
 print "Phase 3: Training neural network...\n";
-my $num_hidden = $opt{'hidden'} || int(sqrt($vocab_size)) || 1;
+my $num_hidden = $opt{'hidden'} || int(sqrt($total_input_size)) || 1;
 
-my $network = AI::FANN->new_standard($vocab_size, $num_hidden, 1);
+my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
 $network->hidden_activation_function(FANN_SIGMOID_STEPWISE);
 $network->output_activation_function(FANN_SIGMOID_STEPWISE);
 $network->learning_rate($learning_rate);
@@ -343,9 +348,7 @@ for my $i (0 .. $#train_vectors) {
 }
 my $train_data = AI::FANN::TrainData->new(@td_args);
 
-my $rule_vocab_size = scalar grep { /^rule:/ } @vocab_keys;
-my $text_vocab_size = $vocab_size - $rule_vocab_size;
-print "Training: $vocab_size inputs ($text_vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
+print "Training: $total_input_size inputs ($vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
 $network->train_on_data($train_data, $train_epochs, 0, 0);
 
 # Save model
@@ -374,14 +377,14 @@ eval {
 } or do {
   die "Failed to store vocabulary to $vocab_path: " . ($@ || 'unknown') . "\n";
 };
-print "Vocabulary saved to $vocab_path ($text_vocab_size text terms, $rule_vocab_size rule terms)\n";
+print "Vocabulary saved to $vocab_path ($vocab_size text terms, $rule_vocab_size rule terms)\n";
 
 my $elapsed = time() - $start_time;
 print "\nTraining complete:\n";
 print "  Messages:      $total_docs ($spam_count spam, $ham_count ham)\n";
-print "  Text vocab:    $text_vocab_size terms\n";
+print "  Text vocab:    $vocab_size terms\n";
 print "  Rule features: $rule_vocab_size\n";
-print "  Total inputs:  $vocab_size\n";
+print "  Total inputs:  $total_input_size\n";
 print "  Hidden units:  $num_hidden\n";
 print "  Epochs:        $train_epochs\n";
 print "  Model saved:   $dataset_path\n";
@@ -412,8 +415,8 @@ sub process_batch {
       printf STDERR "\r  %d/%d", $files_done, $total_files;
     }
 
-    my ($text, $rule_hits, $from_name, $subject, $attach_names, $link_texts) =
-      process_message($sa, $plugin, $file);
+    my ($text, $rule_hits, $from_name, $subject, $attach_names, $link_texts,
+        $uri_domains, $from_domain) = process_message($sa, $plugin, $file);
     next unless defined $text && length($text) >= $min_text_len;
 
     my @tokens = $plugin->tokenize_text($text, 'body:');
@@ -432,6 +435,12 @@ sub process_batch {
       for my $txt (@$link_texts) {
         push @tokens, $plugin->tokenize_text($txt, 'link:');
       }
+    }
+    if ($uri_domains && @$uri_domains) {
+      push @tokens, map { "udomain:$_" } @$uri_domains;
+    }
+    if (defined $from_domain && length $from_domain) {
+      push @tokens, "fdomain:$from_domain";
     }
     next unless @tokens;
 
@@ -544,23 +553,36 @@ sub process_message {
     $rule_hits{$_} = 1 for split(/,/, $sub_str);
   }
 
-  # Collect link anchor texts
+  # Collect link anchor texts and URI domains
   my @link_texts;
+  my @uri_domains;
   my $uri_detail = $pms->get_uri_detail_list();
   if ($uri_detail) {
     for my $uri_info (values %$uri_detail) {
-      next unless $uri_info->{text};
-      for my $txt (@{$uri_info->{text}}) {
-        push @link_texts, $txt if defined $txt && length $txt;
+      if ($uri_info->{text}) {
+        for my $txt (@{$uri_info->{text}}) {
+          push @link_texts, $txt if defined $txt && length $txt;
+        }
+      }
+      if ($uri_info->{domains}) {
+        push @uri_domains, map { lc $_ } keys %{$uri_info->{domains}};
       }
     }
+  }
+
+  # Extract From domain
+  my $from_addr = $msg->get_header('From') || '';
+  my $from_domain;
+  if ($from_addr =~ /\@([a-zA-Z0-9._-]+)\s*>?\s*$/) {
+    $from_domain = lc $1;
   }
 
   my $text_arr = $msg->get_visible_rendered_body_text_array();
   my $text = join("\n", @{$text_arr});
   $pms->finish();
   $msg->finish();
-  return ($text, \%rule_hits, $from_name, $subject, \@attach_names, \@link_texts);
+  return ($text, \%rule_hits, $from_name, $subject, \@attach_names, \@link_texts,
+          \@uri_domains, $from_domain);
 }
 
 

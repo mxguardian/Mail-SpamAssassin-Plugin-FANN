@@ -18,7 +18,21 @@ GetOptions(
 ) or die "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
 
 if ($opt{help}) {
-  print "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
+  print <<'USAGE';
+Usage: fann-test-accuracy [options] <spam-dir> <ham-dir>
+
+Tests the accuracy of a trained FANN model by scanning spam and ham
+message directories and reporting classification results.
+
+Options:
+  -C, --configpath path      Path to standard configuration directory
+  --siteconfigpath path      Path to site configuration directory
+  -p, --prefspath file       Path to user preferences file
+  -L, --local                Use local tests only (no network tests)
+  -m, --misclassified        Show details of misclassified messages
+  -h, --help                 Show this help
+
+USAGE
   exit 0;
 }
 
@@ -34,6 +48,7 @@ my $sa = Mail::SpamAssassin->new({
   dont_copy_prefs     => 1,
 });
 $sa->init(1);
+$sa->{conf}->{use_bayes} = 0;
 
 my %results;
 

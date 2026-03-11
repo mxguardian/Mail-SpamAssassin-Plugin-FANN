@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -252,11 +252,12 @@ sub finish_parsing_end {
         $vocabulary{_spam_count} ||= 0;
         $vocabulary{_ham_count} ||= 0;
 
-        # Build text vocabulary index (stable sorted order)
-        my @vocab_keys = sort keys %{ $vocabulary{terms} };
+        # Split into text terms (TF-IDF) and rule terms (binary)
+        my @vocab_keys = sort grep { !/^rule:/ } keys %{ $vocabulary{terms} };
+        my @rule_keys  = sort grep { /^rule:/ } keys %{ $vocabulary{terms} };
         my %vocab_index = map { $vocab_keys[$_] => $_ } 0..$#vocab_keys;
 
-        # Precompute IDF: log((N+1)/(df+1)) + 1 smoothing
+        # Precompute IDF for text terms only
         my $N = $vocabulary{_doc_count} || 1;
         my %idf;
         foreach my $w (@vocab_keys) {
@@ -267,6 +268,7 @@ sub finish_parsing_end {
         $self->{nn_vocab} = {
           vocab_keys  => \@vocab_keys,
           vocab_index => \%vocab_index,
+          rule_keys   => \@rule_keys,
           idf         => \%idf,
           spam_count  => $vocabulary{_spam_count},
           ham_count   => $vocabulary{_ham_count},
@@ -459,26 +461,26 @@ sub _run_fann_prediction {
       push @tokens, $self->tokenize_filename($name, 'attach:');
     }
 
-    # Tokenize link anchor texts
+    # Tokenize link anchor texts and URI domains
     my $uri_detail = $pms->get_uri_detail_list();
     if ($uri_detail) {
       for my $uri_info (values %$uri_detail) {
-        next unless $uri_info->{text};
-        for my $txt (@{$uri_info->{text}}) {
-          next unless defined $txt && length $txt;
-          push @tokens, $self->tokenize_text($txt, 'link:');
+        if ($uri_info->{text}) {
+          for my $txt (@{$uri_info->{text}}) {
+            next unless defined $txt && length $txt;
+            push @tokens, $self->tokenize_text($txt, 'link:');
+          }
+        }
+        if ($uri_info->{domains}) {
+          push @tokens, map { "udomain:" . lc($_) } keys %{$uri_info->{domains}};
         }
       }
     }
 
-    # Add rule: tokens from rule hits
-    my $hit_str = $pms->get_names_of_tests_hit();
-    if ($hit_str) {
-      push @tokens, map { "rule:$_" } split(/,/, $hit_str);
-    }
-    my $sub_str = $pms->get_names_of_subtests_hit();
-    if ($sub_str) {
-      push @tokens, map { "rule:$_" } split(/,/, $sub_str);
+    # From domain
+    my $from_addr = $pms->get('From:addr');
+    if (defined $from_addr && $from_addr =~ /\@([a-zA-Z0-9._-]+)\s*$/) {
+      push @tokens, "fdomain:" . lc($1);
     }
 
     my $vec = $self->compute_tfidf_vector(\@tokens, $vocab_keys, $vocab_index, $idf);
@@ -487,7 +489,23 @@ sub _run_fann_prediction {
     @tfidf_vec = (0) x $vocab_size;
   }
 
-  my @combined = @tfidf_vec;
+  # Append binary rule features
+  my $rule_keys = $vocab->{rule_keys};
+  my @rule_vec;
+  if (@$rule_keys) {
+    my %hits;
+    my $hit_str = $pms->get_names_of_tests_hit();
+    if ($hit_str) {
+      $hits{$_} = 1 for split(/,/, $hit_str);
+    }
+    my $sub_str = $pms->get_names_of_subtests_hit();
+    if ($sub_str) {
+      $hits{$_} = 1 for split(/,/, $sub_str);
+    }
+    @rule_vec = map { $hits{ substr($_, 5) } ? 1 : 0 } @$rule_keys;
+  }
+
+  my @combined = (@tfidf_vec, @rule_vec);
   unless (@combined) {
     $pms->{fann_prediction} = undef;
     dbg("No features available");
