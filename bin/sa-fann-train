@@ -1,4 +1,4 @@
-#!/usr/bin/env perl -T
+#!/usr/bin/env -S perl -T
 #
 # Copyright 2024 MXGuardian
 #
@@ -53,7 +53,6 @@ GetOptions(
   'configpath|C=s'     => \$opt{'configpath'},
   'siteconfigpath=s'   => \$opt{'siteconfigpath'},
   'prefspath|p=s'      => \$opt{'prefspath'},
-  'no-rules'           => \$opt{'no_rules'},
   'hidden=i'           => \$opt{'hidden'},
   'jobs|j=i'           => \$opt{'jobs'},
   'progress'           => \$opt{'progress'},
@@ -115,7 +114,6 @@ die "FANN plugin not loaded -- is it enabled in your configuration?\n"
 
 # Set training mode to prevent check_cleanup from running inference
 $nn_plugin->{training_mode} = 1;
-my $use_rules = !$opt{'no_rules'};
 
 # Read configuration, apply command-line overrides
 my $conf = $spamtest->{conf};
@@ -147,7 +145,7 @@ print "Found " . scalar(@spam_files) . " spam files, " . scalar(@ham_files) . " 
 
 # Phase 1: Read all messages, build vocabulary, and collect rule hits
 my $num_jobs = $opt{'jobs'} || 1;
-print "Phase 1: Building vocabulary" . ($use_rules ? " and collecting rule hits" : "") .
+print "Phase 1: Building vocabulary and collecting rule hits" .
       ($num_jobs > 1 ? " ($num_jobs workers)" : "") . "...\n";
 
 my @all_entries = (
@@ -163,7 +161,7 @@ my @all_messages;
 
 if ($num_jobs <= 1) {
   # Single-process mode
-  my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $use_rules, $min_text_len, $opt{'progress'});
+  my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $min_text_len, $opt{'progress'});
   %vocabulary_terms = %{ $results->{vocabulary_terms} };
   $total_docs = $results->{total_docs};
   $spam_count = $results->{spam_count};
@@ -214,7 +212,7 @@ if ($num_jobs <= 1) {
       $child_plugin->{training_mode} = 1;
 
       my $results = process_batch($child_sa, $child_plugin, $chunks[$job_id],
-                                  $use_rules, $min_text_len, $opt{'progress'});
+                                  $min_text_len, $opt{'progress'});
 
       my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
       $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
@@ -259,7 +257,7 @@ if ($num_jobs <= 1) {
 print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
 print "Raw vocabulary: " . scalar(keys %vocabulary_terms) . " terms\n";
 my @rule_keys = sort grep { /^rule:/ } keys %vocabulary_terms;
-print "Rules seen: " . scalar(@rule_keys) . "\n" if $use_rules;
+print "Rules seen: " . scalar(@rule_keys) . "\n";
 
 # Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
 # Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
@@ -396,7 +394,7 @@ exit 0;
 # --- Helper functions ---
 
 sub process_batch {
-  my ($sa, $plugin, $entries, $use_rules, $min_text_len, $show_progress) = @_;
+  my ($sa, $plugin, $entries, $min_text_len, $show_progress) = @_;
 
   my %vocab;
   my $total_docs = 0;
@@ -414,8 +412,8 @@ sub process_batch {
       printf STDERR "\r  %d/%d", $files_done, $total_files;
     }
 
-    my ($text, $rule_hits, $from_name, $subject, $attach_names) =
-      process_message($sa, $plugin, $file, $use_rules);
+    my ($text, $rule_hits, $from_name, $subject, $attach_names, $link_texts) =
+      process_message($sa, $plugin, $file);
     next unless defined $text && length($text) >= $min_text_len;
 
     my @tokens = $plugin->tokenize_text($text, 'body:');
@@ -428,6 +426,11 @@ sub process_batch {
     if ($attach_names && @$attach_names) {
       for my $name (@$attach_names) {
         push @tokens, $plugin->tokenize_filename($name, 'attach:');
+      }
+    }
+    if ($link_texts && @$link_texts) {
+      for my $txt (@$link_texts) {
+        push @tokens, $plugin->tokenize_text($txt, 'link:');
       }
     }
     next unless @tokens;
@@ -494,7 +497,7 @@ sub collect_files {
 }
 
 sub process_message {
-  my ($spamtest, $nn_plugin, $file, $use_rules) = @_;
+  my ($spamtest, $nn_plugin, $file) = @_;
 
   my $raw;
   if (!open(my $fh, '<', $file)) {
@@ -529,29 +532,35 @@ sub process_message {
     push @attach_names, $name;
   }
 
-  my %rule_hits;
-  if ($use_rules) {
-    my $pms = $spamtest->check($msg);
-    my $hit_str = $pms->get_names_of_tests_hit();
-    if ($hit_str) {
-      %rule_hits = map { $_ => 1 } split(/,/, $hit_str);
-    }
-    my $sub_str = $pms->get_names_of_subtests_hit();
-    if ($sub_str) {
-      $rule_hits{$_} = 1 for split(/,/, $sub_str);
-    }
+  my $pms = $spamtest->check($msg);
 
-    my $text_arr = $msg->get_visible_rendered_body_text_array();
-    my $text = join("\n", @{$text_arr});
-    $pms->finish();
-    $msg->finish();
-    return ($text, \%rule_hits, $from_name, $subject, \@attach_names);
-  } else {
-    my $text_arr = $msg->get_visible_rendered_body_text_array();
-    my $text = join("\n", @{$text_arr});
-    $msg->finish();
-    return ($text, undef, $from_name, $subject, \@attach_names);
+  my %rule_hits;
+  my $hit_str = $pms->get_names_of_tests_hit();
+  if ($hit_str) {
+    %rule_hits = map { $_ => 1 } split(/,/, $hit_str);
   }
+  my $sub_str = $pms->get_names_of_subtests_hit();
+  if ($sub_str) {
+    $rule_hits{$_} = 1 for split(/,/, $sub_str);
+  }
+
+  # Collect link anchor texts
+  my @link_texts;
+  my $uri_detail = $pms->get_uri_detail_list();
+  if ($uri_detail) {
+    for my $uri_info (values %$uri_detail) {
+      next unless $uri_info->{text};
+      for my $txt (@{$uri_info->{text}}) {
+        push @link_texts, $txt if defined $txt && length $txt;
+      }
+    }
+  }
+
+  my $text_arr = $msg->get_visible_rendered_body_text_array();
+  my $text = join("\n", @{$text_arr});
+  $pms->finish();
+  $msg->finish();
+  return ($text, \%rule_hits, $from_name, $subject, \@attach_names, \@link_texts);
 }
 
 
@@ -569,7 +578,6 @@ Options:
  --ham path                    Directory containing ham messages (required)
  --epochs N                    Override fann_train_epochs
  --vocab-cap N                 Override fann_vocab_cap
- --no-rules                    Skip rule feature collection (text-only model)
  --jobs N, -j N                Number of parallel workers (default: 1)
  --progress                    Show progress during message processing
  --configpath=path, -C path    Path to standard configuration directory
@@ -614,14 +622,6 @@ Override the C<fann_train_epochs> configuration setting.
 =item B<--vocab-cap> I<N>
 
 Override the C<fann_vocab_cap> configuration setting.
-
-=item B<--no-rules>
-
-Skip SpamAssassin rule feature collection.  When specified, only TF-IDF text
-features are used (no rule binary features).  By default, each training message
-is run through SpamAssassin to collect rule hits, which are appended as binary
-features to the TF-IDF vector.  Rules that are not statistically significant
-(chi-squared < 3.841, i.e. p > 0.05) are automatically pruned.
 
 =item B<--jobs> I<N>, B<-j> I<N>
 

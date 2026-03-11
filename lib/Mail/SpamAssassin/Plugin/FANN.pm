@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -322,7 +322,6 @@ sub tokenize_filename {
     my ($self, $name, $prefix) = @_;
     my $conf = $self->{main}->{conf};
 
-    my $min_word_len = $conf->{fann_min_word_len};
     my $max_word_len = $conf->{fann_max_word_len};
     my %stopwords    = map { lc($_) => 1 } split /\s+/, $conf->{fann_stopwords};
 
@@ -334,7 +333,7 @@ sub tokenize_filename {
     $name =~ s/[^a-zA-Z]/ /g;
     $name = lc $name;
 
-    my @tokens = grep { length($_) >= $min_word_len && length($_) <= $max_word_len } split /\s+/, $name;
+    my @tokens = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
     @tokens = grep { !$stopwords{$_} } @tokens;
     if (defined $prefix && length $prefix) {
         @tokens = map { $prefix . $_ } @tokens;
@@ -458,6 +457,18 @@ sub _run_fann_prediction {
       my $name = $part->{name};
       next unless defined $name && length $name;
       push @tokens, $self->tokenize_filename($name, 'attach:');
+    }
+
+    # Tokenize link anchor texts
+    my $uri_detail = $pms->get_uri_detail_list();
+    if ($uri_detail) {
+      for my $uri_info (values %$uri_detail) {
+        next unless $uri_info->{text};
+        for my $txt (@{$uri_info->{text}}) {
+          next unless defined $txt && length $txt;
+          push @tokens, $self->tokenize_text($txt, 'link:');
+        }
+      }
     }
 
     # Add rule: tokens from rule hits

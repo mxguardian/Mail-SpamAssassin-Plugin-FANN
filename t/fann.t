@@ -46,7 +46,7 @@ close $fh;
 # Train model
 my $train_script = File::Spec->catfile($FindBin::Bin, '..', 'bin', 'sa-fann-train');
 my $cmd = "$^X -T -I$libdir" .
-          " $train_script -L --no-rules" .
+          " $train_script -L" .
           " --spam $spamdir --ham $hamdir" .
           " -C $cfdir --siteconfigpath $cfdir" .
           " -p $prefs";
