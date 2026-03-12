@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -472,15 +472,21 @@ sub _run_fann_prediction {
           }
         }
         if ($uri_info->{domains}) {
-          push @tokens, map { "udomain:" . lc($_) } keys %{$uri_info->{domains}};
+          for my $domain (keys %{$uri_info->{domains}}) {
+            (my $tld = lc $domain) =~ s/^[^.]+\.//;
+            push @tokens, "utld:$tld";
+          }
         }
       }
     }
 
-    # From domain
+    # From TLD
     my $from_addr = $pms->get('From:addr');
     if (defined $from_addr && $from_addr =~ /\@([a-zA-Z0-9._-]+)\s*$/) {
-      push @tokens, "fdomain:" . lc($1);
+      my $raw_domain = lc($1);
+      my $reg_domain = $self->{main}->{registryboundaries}->trim_domain($raw_domain);
+      (my $tld = $reg_domain) =~ s/^[^.]+\.//;
+      push @tokens, "ftld:$tld";
     }
 
     my $vec = $self->compute_tfidf_vector(\@tokens, $vocab_keys, $vocab_index, $idf);

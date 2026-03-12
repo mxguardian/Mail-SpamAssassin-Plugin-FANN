@@ -437,10 +437,10 @@ sub process_batch {
       }
     }
     if ($uri_domains && @$uri_domains) {
-      push @tokens, map { "udomain:$_" } @$uri_domains;
+      push @tokens, map { "utld:$_" } @$uri_domains;
     }
     if (defined $from_domain && length $from_domain) {
-      push @tokens, "fdomain:$from_domain";
+      push @tokens, "ftld:$from_domain";
     }
     next unless @tokens;
 
@@ -565,7 +565,10 @@ sub process_message {
         }
       }
       if ($uri_info->{domains}) {
-        push @uri_domains, map { lc $_ } keys %{$uri_info->{domains}};
+        for my $domain (keys %{$uri_info->{domains}}) {
+          (my $tld = lc $domain) =~ s/^[^.]+\.//;
+          push @uri_domains, $tld;
+        }
       }
     }
   }
@@ -574,7 +577,10 @@ sub process_message {
   my $from_addr = $msg->get_header('From') || '';
   my $from_domain;
   if ($from_addr =~ /\@([a-zA-Z0-9._-]+)\s*>?\s*$/) {
-    $from_domain = lc $1;
+    my $raw_domain = lc $1;
+    my $reg_domain = $spamtest->{registryboundaries}->trim_domain($raw_domain);
+    (my $tld = $reg_domain) =~ s/^[^.]+\.//;
+    $from_domain = $tld;
   }
 
   my $text_arr = $msg->get_visible_rendered_body_text_array();
