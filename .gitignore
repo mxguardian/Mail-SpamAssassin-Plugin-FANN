@@ -2,6 +2,7 @@
 .idea/
 MYMETA.json
 MYMETA.yml
+*.tar
 *.tar.gz
 Makefile
 Makefile.old

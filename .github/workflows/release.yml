@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build distribution tarball
+        run: |
+          perl Makefile.PL
+          make dist
+
+      - name: Create release with fixed-name asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the versioned tarball
+          TARBALL=$(ls Mail-SpamAssassin-Plugin-FANN-*.tar.gz)
+          # Copy to fixed name
+          cp "$TARBALL" Mail-SpamAssassin-Plugin-FANN.tar.gz
+          # Create release with both files
+          gh release create "${{ github.ref_name }}" \
+            --generate-notes \
+            "$TARBALL" \
+            Mail-SpamAssassin-Plugin-FANN.tar.gz
