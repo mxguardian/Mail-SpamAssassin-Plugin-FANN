@@ -78,7 +78,9 @@ if ($opt{chi2}) {
   for my $t (@keys) {
     my $spam = $terms{$t}{spam} || 0;
     my $ham  = $terms{$t}{ham}  || 0;
-    my $bias = $spam > $ham ? 'SPAM' : $ham > $spam ? 'HAM' : '-';
+    my $spam_rate = $spam_count ? $spam / $spam_count : 0;
+    my $ham_rate  = $ham_count  ? $ham  / $ham_count  : 0;
+    my $bias = $spam_rate > $ham_rate ? 'SPAM' : $ham_rate > $spam_rate ? 'HAM' : '-';
     printf "%-30s  %10.2f  %6d  %6d  %s\n", $t, $chi2{$t}, $spam, $ham, $bias;
   }
 } else {
