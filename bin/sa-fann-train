@@ -58,6 +58,7 @@ GetOptions(
   'progress'           => \$opt{'progress'},
   'debug|D:s'          => \$opt{'debug'},
   'local|L'            => \$opt{'local'},
+  'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
   'help|h'             => \$opt{'help'},
   'version|V'          => \$opt{'version'},
 ) or usage();
@@ -101,6 +102,11 @@ $spamtest->init(1);
 
 # Disable Bayes during training to avoid polluting the Bayes database
 $spamtest->{conf}->{use_bayes} = 0;
+
+# Optionally disable RBL checks while keeping other network tests enabled
+if ($opt{'skip_rbl_checks'}) {
+  $spamtest->{conf}->{skip_rbl_checks} = 1;
+}
 
 # Find the FANN plugin instance
 my $nn_plugin;
@@ -201,6 +207,9 @@ if ($num_jobs <= 1) {
       });
       $child_sa->init(1);
       $child_sa->{conf}->{use_bayes} = 0;
+      if ($opt{'skip_rbl_checks'}) {
+        $child_sa->{conf}->{skip_rbl_checks} = 1;
+      }
 
       my $child_plugin;
       foreach my $plugin (@{$child_sa->{plugins}->{plugins}}) {
@@ -612,6 +621,7 @@ Options:
  --siteconfigpath=path         Path to site configuration directory
  --prefspath=file, -p file     Path to user preferences file
  --local, -L                   Use local tests only (no network tests)
+ --skip-rbl-checks             Disable RBL checks (keep other network tests)
  --debug [area,...], -D        Print debugging messages
  --help, -h                    Print help message
  --version, -V                 Print version
@@ -679,6 +689,12 @@ Read user score preferences from I<file>.
 =item B<--local>, B<-L>
 
 Operate in local-tests-only mode.
+
+=item B<--skip-rbl-checks>
+
+Disable DNS blocklist (RBL) checks while keeping other network tests
+enabled.  This is useful when you want network-based rules (e.g. SPF, DKIM)
+but not the slower RBL lookups.
 
 =item B<--debug> [I<area,...>], B<-D>
 
