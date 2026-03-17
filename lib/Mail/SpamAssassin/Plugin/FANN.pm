@@ -80,7 +80,7 @@ Where FANN plugin will store its data.
 
 Minimum number of characters of visible text required to run prediction on a message.
 
-=item fann_min_word_len n (default: 4)
+=item fann_min_word_len n (default: 2)
 
 Minimum token length considered when building the vocabulary and feature vectors.
 
@@ -140,7 +140,7 @@ Space-separated list of stopwords to ignore when tokenizing text.
   push(@cmds, {
     setting => 'fann_min_word_len',
     is_admin => 1,
-    default => 4,
+    default => 2,
     type => $Mail::SpamAssassin::Conf::CONF_TYPE_NUMERIC,
   });
   push(@cmds, {
