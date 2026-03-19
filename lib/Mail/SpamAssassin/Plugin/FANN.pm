@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -437,34 +437,16 @@ sub compute_tfidf_vector {
 }
 
 # check_fann(low_threshold, high_threshold)
-# Registers a rule with its threshold range. The rule fires in check_cleanup
-# if the prediction falls within [low_threshold, high_threshold].
+# Returns 1 if the FANN prediction falls within [low_threshold, high_threshold].
 # Example usage in config:
 #   body FANN_SPAM_HI  eval:check_fann(0.85, 1.00)
 #   body FANN_HAM_HI   eval:check_fann(0.00, 0.15)
 sub check_fann {
   my ($self, $pms, $body, $low, $high) = @_;
-  my $rulename = $pms->get_current_eval_rule_name();
-  $pms->{fann_rules} ||= [];
-  push @{$pms->{fann_rules}}, { name => $rulename, low => $low, high => $high };
-  return 0;
-}
-
-sub check_cleanup {
-  my ($self, $opts) = @_;
-  return if $self->{training_mode};  # skip inference during sa-fann-train
-  my $pms = $opts->{permsgstatus};
   $self->_run_fann_prediction($pms);
-
-  if (defined $pms->{fann_prediction} && $pms->{fann_rules}) {
-    my $p = $pms->{fann_prediction};
-    for my $rule (@{$pms->{fann_rules}}) {
-      if ($p >= $rule->{low} && $p <= $rule->{high}) {
-        $pms->got_hit($rule->{name}, '', ruletype => 'eval');
-      }
-    }
-    dbg("Prediction: $p");
-  }
+  my $p = $pms->{fann_prediction};
+  return 0 unless defined $p;
+  return ($p >= $low && $p <= $high) ? 1 : 0;
 }
 
 sub _run_fann_prediction {

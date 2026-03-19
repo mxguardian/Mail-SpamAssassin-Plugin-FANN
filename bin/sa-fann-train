@@ -61,6 +61,7 @@ GetOptions(
   'local|L'            => \$opt{'local'},
   'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
   'dump-hits=s'        => \$opt{'dump_hits'},
+  'seed=i'             => \$opt{'seed'},
   'help|h'             => \$opt{'help'},
   'version|V'          => \$opt{'version'},
 ) or usage();
@@ -362,6 +363,7 @@ print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $tota
 print "Phase 3: Training neural network...\n";
 my $num_hidden = $opt{'hidden'} || int(sqrt($total_input_size)) || 1;
 
+srand($opt{'seed'}) if defined $opt{'seed'};
 my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
 $network->hidden_activation_function(FANN_SIGMOID_STEPWISE);
 $network->output_activation_function(FANN_SIGMOID_STEPWISE);

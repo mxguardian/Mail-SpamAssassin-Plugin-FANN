@@ -48,6 +48,7 @@ my $train_script = File::Spec->catfile($FindBin::Bin, '..', 'bin', 'sa-fann-trai
 my $cmd = "$^X -T -I$libdir" .
           " $train_script -L" .
           " --spam $spamdir --ham $hamdir" .
+          " --seed 42" .
           " -C $cfdir --siteconfigpath $cfdir" .
           " -p $prefs";
 diag("Training: $cmd");
