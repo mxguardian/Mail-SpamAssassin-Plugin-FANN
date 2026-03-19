@@ -32,3 +32,8 @@ jobs:
             --generate-notes \
             "$TARBALL" \
             Mail-SpamAssassin-Plugin-FANN.tar.gz
+
+      - name: Update latest tag
+        run: |
+          git tag -f latest "${{ github.ref_name }}"
+          git push -f origin latest
