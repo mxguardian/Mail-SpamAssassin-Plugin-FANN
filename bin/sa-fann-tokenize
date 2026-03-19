@@ -1,0 +1,194 @@
+#!/usr/bin/env -S perl -T
+#
+# Copyright 2024 MXGuardian
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+use strict;
+use warnings;
+use re 'taint';
+
+use Getopt::Long;
+use Pod::Usage;
+use POSIX qw(locale_h);
+
+POSIX::setlocale(LC_TIME,'C');
+
+use Mail::SpamAssassin;
+use Mail::SpamAssassin::Util;
+
+sub usage {
+  pod2usage(
+    -exitval => 64,
+    -verbose => 0,
+    -message => 'For more information, try sa-fann-tokenize --help',
+  );
+}
+
+my %opt = ();
+
+GetOptions(
+  'configpath|C=s'     => \$opt{'configpath'},
+  'siteconfigpath=s'   => \$opt{'siteconfigpath'},
+  'prefspath|p=s'      => \$opt{'prefspath'},
+  'debug|D:s'          => \$opt{'debug'},
+  'local|L'            => \$opt{'local'},
+  'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
+  'rules'              => \$opt{'rules'},
+  'help|h'             => \$opt{'help'},
+  'version|V'          => \$opt{'version'},
+) or usage();
+
+if ($opt{'help'}) {
+  pod2usage(-exitval => 0, -verbose => 1);
+}
+
+if ($opt{'version'}) {
+  require Mail::SpamAssassin::Plugin::FANN;
+  print "sa-fann-tokenize version $Mail::SpamAssassin::Plugin::FANN::VERSION (SpamAssassin " . Mail::SpamAssassin->Version() . ")\n";
+  exit 0;
+}
+
+# Create the SpamAssassin instance
+my $spamtest = Mail::SpamAssassin->new(
+  {
+    rules_filename      => $opt{'configpath'},
+    site_rules_filename => $opt{'siteconfigpath'},
+    userprefs_filename  => $opt{'prefspath'},
+    debug               => $opt{'debug'},
+    local_tests_only    => $opt{'local'},
+    dont_copy_prefs     => 1,
+  }
+);
+
+$spamtest->init(1);
+
+# Disable Bayes to avoid polluting the database
+$spamtest->{conf}->{use_bayes} = 0;
+
+if ($opt{'skip_rbl_checks'}) {
+  $spamtest->{conf}->{skip_rbl_checks} = 1;
+}
+
+# Find the FANN plugin instance
+my $nn_plugin;
+foreach my $plugin (@{$spamtest->{plugins}->{plugins}}) {
+  if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+    $nn_plugin = $plugin;
+    last;
+  }
+}
+die "FANN plugin not loaded -- is it enabled in your configuration?\n"
+  unless $nn_plugin;
+
+# Set training mode to prevent check_cleanup from running inference
+$nn_plugin->{training_mode} = 1;
+
+# Read message from file or stdin
+my $raw;
+if (@ARGV) {
+  my $file = Mail::SpamAssassin::Util::untaint_file_path($ARGV[0]);
+  open(my $fh, '<', $file) or die "Cannot open $file: $!\n";
+  local $/;
+  $raw = <$fh>;
+  close $fh;
+} else {
+  local $/;
+  $raw = <STDIN>;
+}
+
+die "Empty input\n" unless defined $raw && length($raw) > 0;
+
+my $msg = $spamtest->parse(\$raw);
+die "Failed to parse message\n" unless $msg;
+
+my $pms = $spamtest->check($msg);
+
+# Extract tokens
+my $tokens = $nn_plugin->extract_tokens($msg, $pms);
+
+# Print tokens, one per line
+for my $token (sort @$tokens) {
+  print "$token\n";
+}
+
+# Print rule hits if requested
+if ($opt{'rules'}) {
+  my $hit_str = $pms->get_names_of_tests_hit();
+  if ($hit_str) {
+    for my $r (sort split(/,/, $hit_str)) {
+      print "rule:$r\n";
+    }
+  }
+  my $sub_str = $pms->get_names_of_subtests_hit();
+  if ($sub_str) {
+    for my $r (sort split(/,/, $sub_str)) {
+      print "rule:$r\n";
+    }
+  }
+}
+
+$pms->finish();
+$msg->finish();
+$spamtest->finish();
+
+exit 0;
+
+
+=head1 NAME
+
+sa-fann-tokenize - display FANN tokens extracted from an email message
+
+=head1 SYNOPSIS
+
+B<sa-fann-tokenize> [options] [file]
+
+If no file is given, reads from standard input.
+
+Options:
+
+ --rules                       Also output rule: tokens
+ --configpath=path, -C path    Path to standard configuration directory
+ --siteconfigpath=path         Path to site configuration directory
+ --prefspath=file, -p file     Path to user preferences file
+ --local, -L                   Use local tests only (no network tests)
+ --skip-rbl-checks             Disable RBL checks (keep other network tests)
+ --debug [area,...], -D        Print debugging messages
+ --help, -h                    Print this help message
+ --version, -V                 Print version information
+
+=head1 DESCRIPTION
+
+B<sa-fann-tokenize> parses an email message through SpamAssassin and outputs
+the tokens that would be used by the FANN plugin for classification. This is
+useful for debugging and understanding what features the neural network sees
+for a given message.
+
+Tokens are printed one per line, sorted alphabetically. Each token is prefixed
+with its type (e.g. C<body:>, C<subj:>, C<from:>, C<attach:>, C<link:>,
+C<utld:>, C<ftld:>, C<cc:>).
+
+Use the B<--rules> flag to also output C<rule:> tokens from SpamAssassin rule
+hits.
+
+=head1 EXAMPLES
+
+Tokenize a message file:
+
+  sa-fann-tokenize /path/to/message.eml
+
+Tokenize from stdin with rule hits:
+
+  cat message.eml | sa-fann-tokenize --rules -L
+
+=cut
