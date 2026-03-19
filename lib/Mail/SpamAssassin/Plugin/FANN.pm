@@ -404,7 +404,7 @@ sub extract_tokens {
     }
 
     # Relay country codes
-    my $relay_countries = $pms->get('RELAYCOUNTRYEXT');
+    my $relay_countries = $pms->get_tag('RELAYCOUNTRYEXT');
     if (defined $relay_countries && length $relay_countries) {
         my %seen_cc;
         for my $cc (split(/\s+/, $relay_countries)) {
