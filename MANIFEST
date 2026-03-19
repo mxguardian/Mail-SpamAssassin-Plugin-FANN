@@ -1,4 +1,5 @@
 bin/sa-fann-dump
+bin/sa-fann-tokenize
 bin/fann-split-corpus
 bin/fann-test-accuracy
 bin/sa-fann-train
