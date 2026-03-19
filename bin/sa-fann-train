@@ -424,34 +424,10 @@ sub process_batch {
       printf STDERR "\r  %d/%d", $files_done, $total_files;
     }
 
-    my ($text, $rule_hits, $from_name, $subject, $attach_names, $link_texts,
-        $uri_domains, $from_domain) = process_message($sa, $plugin, $file);
-    next unless defined $text && length($text) >= $min_text_len;
+    my ($tokens, $rule_hits) = process_message($sa, $plugin, $file, $min_text_len);
+    next unless $tokens && @$tokens;
 
-    my @tokens = $plugin->tokenize_text($text, 'body:');
-    if (defined $from_name && length $from_name) {
-      push @tokens, $plugin->tokenize_text($from_name, 'from:');
-    }
-    if (defined $subject && length $subject) {
-      push @tokens, $plugin->tokenize_text($subject, 'subj:');
-    }
-    if ($attach_names && @$attach_names) {
-      for my $name (@$attach_names) {
-        push @tokens, $plugin->tokenize_filename($name, 'attach:');
-      }
-    }
-    if ($link_texts && @$link_texts) {
-      for my $txt (@$link_texts) {
-        push @tokens, $plugin->tokenize_text($txt, 'link:');
-      }
-    }
-    if ($uri_domains && @$uri_domains) {
-      push @tokens, map { "utld:$_" } @$uri_domains;
-    }
-    if (defined $from_domain && length $from_domain) {
-      push @tokens, "ftld:$from_domain";
-    }
-    next unless @tokens;
+    my @tokens = @$tokens;
 
     $total_docs++;
     if ($label) { $spam_count++; } else { $ham_count++; }
@@ -515,43 +491,36 @@ sub collect_files {
 }
 
 sub process_message {
-  my ($spamtest, $nn_plugin, $file) = @_;
+  my ($spamtest, $nn_plugin, $file, $min_text_len) = @_;
 
   my $raw;
   if (!open(my $fh, '<', $file)) {
     warn "Cannot open $file: $!\n";
-    return (undef, undef, undef, undef, undef);
+    return (undef, undef);
   } else {
     local $/;
     $raw = <$fh>;
     close $fh;
   }
-  return (undef, undef, undef, undef) unless defined $raw && length($raw) > 0;
+  return (undef, undef) unless defined $raw && length($raw) > 0;
 
   my $msg = $spamtest->parse(\$raw);
-  return (undef, undef, undef, undef) unless $msg;
+  return (undef, undef) unless $msg;
 
-  # Extract From display name and Subject from raw headers
-  my $from_header = $msg->get_header('From') || '';
-  my $from_name = '';
-  if ($from_header =~ /^\s*"?(.+?)"?\s*<[^>]+>/) {
-    $from_name = $1;
-    $from_name =~ s/^\s+|\s+$//g;
-    $from_name =~ s/^"|"$//g;
-  }
-  my $subject = $msg->get_header('Subject') || '';
-  $subject =~ s/^\s+|\s+$//g;
-
-  # Collect attachment filenames
-  my @attach_names;
-  foreach my $part ($msg->find_parts(qr/./, 1)) {
-    my $name = $part->{name};
-    next unless defined $name && length $name;
-    push @attach_names, $name;
+  # Check minimum text length before doing expensive work
+  my $text_arr = $msg->get_visible_rendered_body_text_array();
+  my $text = join("\n", @{$text_arr});
+  if (!defined $text || length($text) < $min_text_len) {
+    $msg->finish();
+    return (undef, undef);
   }
 
   my $pms = $spamtest->check($msg);
 
+  # Extract tokens using the same method as inference
+  my $tokens = $nn_plugin->extract_tokens($msg, $pms);
+
+  # Extract rule hits separately (binary features, not TF-IDF tokens)
   my %rule_hits;
   my $hit_str = $pms->get_names_of_tests_hit();
   if ($hit_str) {
@@ -562,42 +531,9 @@ sub process_message {
     $rule_hits{$_} = 1 for split(/,/, $sub_str);
   }
 
-  # Collect link anchor texts and URI domains
-  my @link_texts;
-  my @uri_domains;
-  my $uri_detail = $pms->get_uri_detail_list();
-  if ($uri_detail) {
-    for my $uri_info (values %$uri_detail) {
-      if ($uri_info->{text}) {
-        for my $txt (@{$uri_info->{text}}) {
-          push @link_texts, $txt if defined $txt && length $txt;
-        }
-      }
-      if ($uri_info->{domains}) {
-        for my $domain (keys %{$uri_info->{domains}}) {
-          (my $tld = lc $domain) =~ s/^[^.]+\.//;
-          push @uri_domains, $tld;
-        }
-      }
-    }
-  }
-
-  # Extract From domain
-  my $from_addr = $msg->get_header('From') || '';
-  my $from_domain;
-  if ($from_addr =~ /\@([a-zA-Z0-9._-]+)\s*>?\s*$/) {
-    my $raw_domain = lc $1;
-    my $reg_domain = $spamtest->{registryboundaries}->trim_domain($raw_domain);
-    (my $tld = $reg_domain) =~ s/^[^.]+\.//;
-    $from_domain = $tld;
-  }
-
-  my $text_arr = $msg->get_visible_rendered_body_text_array();
-  my $text = join("\n", @{$text_arr});
   $pms->finish();
   $msg->finish();
-  return ($text, \%rule_hits, $from_name, $subject, \@attach_names, \@link_texts,
-          \@uri_domains, $from_domain);
+  return ($tokens, \%rule_hits);
 }
 
 

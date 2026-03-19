@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -343,6 +343,80 @@ sub tokenize_filename {
     return @tokens;
 }
 
+# Extract all tokens from a message for FANN classification.
+# This method is public so that sa-fann-train can use the same tokenization.
+sub extract_tokens {
+    my ($self, $msg, $pms) = @_;
+    my @tokens;
+
+    # Body text
+    my $text_arr = $msg->get_visible_rendered_body_text_array();
+    my $text = join("\n", @{$text_arr});
+    if (defined $text && length $text) {
+        push @tokens, $self->tokenize_text($text, 'body:');
+    }
+
+    # From display name
+    my $from_name = $pms->get('From:name');
+    if (defined $from_name && length $from_name) {
+        push @tokens, $self->tokenize_text($from_name, 'from:');
+    }
+
+    # Subject
+    my $subject = $pms->get('Subject');
+    if (defined $subject && length $subject) {
+        push @tokens, $self->tokenize_text($subject, 'subj:');
+    }
+
+    # Attachment filenames
+    foreach my $part ($msg->find_parts(qr/./, 1)) {
+        my $name = $part->{name};
+        next unless defined $name && length $name;
+        push @tokens, $self->tokenize_filename($name, 'attach:');
+    }
+
+    # Link texts and URI TLDs
+    my $uri_detail = $pms->get_uri_detail_list();
+    if ($uri_detail) {
+        for my $uri_info (values %$uri_detail) {
+            if ($uri_info->{text}) {
+                for my $txt (@{$uri_info->{text}}) {
+                    next unless defined $txt && length $txt;
+                    push @tokens, $self->tokenize_text($txt, 'link:');
+                }
+            }
+            if ($uri_info->{domains}) {
+                for my $domain (keys %{$uri_info->{domains}}) {
+                    (my $tld = lc $domain) =~ s/^[^.]+\.//;
+                    push @tokens, "utld:$tld";
+                }
+            }
+        }
+    }
+
+    # From TLD
+    my $from_addr = $pms->get('From:addr');
+    if (defined $from_addr && $from_addr =~ /\@([a-zA-Z0-9._-]+)\s*$/) {
+        my $raw_domain = lc($1);
+        my $reg_domain = $self->{main}->{registryboundaries}->trim_domain($raw_domain);
+        (my $tld = $reg_domain) =~ s/^[^.]+\.//;
+        push @tokens, "ftld:$tld";
+    }
+
+    # Relay country codes
+    my $relay_countries = $pms->get('RELAYCOUNTRYEXT');
+    if (defined $relay_countries && length $relay_countries) {
+        my %seen_cc;
+        for my $cc (split(/\s+/, $relay_countries)) {
+            next if $cc eq '**' || !length($cc);
+            $cc = uc $cc;
+            push @tokens, "cc:$cc" unless $seen_cc{$cc}++;
+        }
+    }
+
+    return \@tokens;
+}
+
 # Compute a TF-IDF feature vector from token list against a given vocabulary.
 # This method is public so that sa-fann-train can use the same vector computation.
 sub compute_tfidf_vector {
@@ -436,58 +510,13 @@ sub _run_fann_prediction {
   my $idf         = $vocab->{idf};
   my $vocab_size  = scalar @$vocab_keys;
 
-  # Get email text and headers, tokenize with source prefixes
+  # Get email text, check minimum length, then extract all tokens
   my $email_to_predict = $msg->get_visible_rendered_body_text_array();
   $email_to_predict = join("\n", @{$email_to_predict});
 
   my @tfidf_vec;
   if ($vocab_size > 0 && defined $email_to_predict && length($email_to_predict) >= $min_text_len) {
-    my @tokens = $self->tokenize_text($email_to_predict, 'body:');
-
-    # Tokenize From name and Subject with their own prefixes
-    my $from_name = $pms->get('From:name');
-    if (defined $from_name && length $from_name) {
-      push @tokens, $self->tokenize_text($from_name, 'from:');
-    }
-    my $subject = $pms->get('Subject');
-    if (defined $subject && length $subject) {
-      push @tokens, $self->tokenize_text($subject, 'subj:');
-    }
-
-    # Tokenize attachment filenames
-    foreach my $part ($msg->find_parts(qr/./, 1)) {
-      my $name = $part->{name};
-      next unless defined $name && length $name;
-      push @tokens, $self->tokenize_filename($name, 'attach:');
-    }
-
-    # Tokenize link anchor texts and URI domains
-    my $uri_detail = $pms->get_uri_detail_list();
-    if ($uri_detail) {
-      for my $uri_info (values %$uri_detail) {
-        if ($uri_info->{text}) {
-          for my $txt (@{$uri_info->{text}}) {
-            next unless defined $txt && length $txt;
-            push @tokens, $self->tokenize_text($txt, 'link:');
-          }
-        }
-        if ($uri_info->{domains}) {
-          for my $domain (keys %{$uri_info->{domains}}) {
-            (my $tld = lc $domain) =~ s/^[^.]+\.//;
-            push @tokens, "utld:$tld";
-          }
-        }
-      }
-    }
-
-    # From TLD
-    my $from_addr = $pms->get('From:addr');
-    if (defined $from_addr && $from_addr =~ /\@([a-zA-Z0-9._-]+)\s*$/) {
-      my $raw_domain = lc($1);
-      my $reg_domain = $self->{main}->{registryboundaries}->trim_domain($raw_domain);
-      (my $tld = $reg_domain) =~ s/^[^.]+\.//;
-      push @tokens, "ftld:$tld";
-    }
+    my @tokens = @{ $self->extract_tokens($msg, $pms) };
 
     my $vec = $self->compute_tfidf_vector(\@tokens, $vocab_keys, $vocab_index, $idf);
     @tfidf_vec = @$vec;
