@@ -13,6 +13,7 @@ GetOptions(
   'siteconfigpath=s' => \$opt{siteconfigpath},
   'prefspath|p=s'    => \$opt{prefspath},
   'local|L'          => \$opt{local},
+  'skip-rbl-checks'  => \$opt{skip_rbl_checks},
   'misclassified|m'  => \$opt{misclassified},
   'help|h'           => \$opt{help},
 ) or die "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
@@ -29,6 +30,7 @@ Options:
   --siteconfigpath path      Path to site configuration directory
   -p, --prefspath file       Path to user preferences file
   -L, --local                Use local tests only (no network tests)
+  --skip-rbl-checks          Disable RBL checks (keep other network tests)
   -m, --misclassified        Show details of misclassified messages
   -h, --help                 Show this help
 
@@ -49,6 +51,11 @@ my $sa = Mail::SpamAssassin->new({
 });
 $sa->init(1);
 $sa->{conf}->{use_bayes} = 0;
+
+# Optionally disable RBL checks while keeping other network tests enabled
+if ($opt{skip_rbl_checks}) {
+  $sa->{conf}->{skip_rbl_checks} = 1;
+}
 
 my %results;
 
