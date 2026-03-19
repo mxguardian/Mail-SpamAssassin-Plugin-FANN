@@ -14,24 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build distribution tarball
-        run: |
-          perl Makefile.PL
-          make dist
-
-      - name: Create release with fixed-name asset
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Find the versioned tarball
-          TARBALL=$(ls Mail-SpamAssassin-Plugin-FANN-*.tar.gz)
-          # Copy to fixed name
-          cp "$TARBALL" Mail-SpamAssassin-Plugin-FANN.tar.gz
-          # Create release with both files
-          gh release create "${{ github.ref_name }}" \
-            --generate-notes \
-            "$TARBALL" \
-            Mail-SpamAssassin-Plugin-FANN.tar.gz
+          gh release create "${{ github.ref_name }}" --generate-notes
 
       - name: Update latest tag
         run: |
