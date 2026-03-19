@@ -306,8 +306,10 @@ delete $vocabulary_terms{$_} for grep { $chi2{$_} < $chi2_threshold } keys %voca
 my $after_sig = scalar keys %vocabulary_terms;
 print "Pruned $before_prune -> $after_sig terms (chi-squared >= $chi2_threshold)\n";
 
-# If still over vocab_cap, keep only the top terms
-if ($after_sig > $vocab_cap) {
+# If text terms exceed vocab_cap, keep only the top text terms (rules are always kept)
+my %rule_terms = map { $_ => delete $vocabulary_terms{$_} } grep { /^rule:/ } keys %vocabulary_terms;
+my $text_count = scalar keys %vocabulary_terms;
+if ($text_count > $vocab_cap) {
   my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vocabulary_terms;
   my %pruned;
   for my $i (0 .. $vocab_cap-1) {
@@ -315,8 +317,10 @@ if ($after_sig > $vocab_cap) {
     $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
   }
   %vocabulary_terms = %pruned;
-  print "Capped vocabulary to $vocab_cap terms\n";
+  print "Capped text vocabulary to $vocab_cap terms\n";
 }
+# Merge rules back in
+@vocabulary_terms{keys %rule_terms} = values %rule_terms;
 
 # Split vocabulary into text terms (TF-IDF) and rule terms (binary)
 my @vocab_keys = sort grep { !/^rule:/ } keys %vocabulary_terms;
