@@ -56,7 +56,6 @@ score   FANN_HAM_LO     -1.5
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `fann_data_dir` | (none) | Directory for model and vocabulary files |
-| `fann_min_text_len` | 256 | Minimum visible text length to run prediction |
 | `fann_min_word_len` | 4 | Minimum token length |
 | `fann_max_word_len` | 24 | Maximum token length |
 | `fann_vocab_cap` | 10000 | Max vocabulary terms (ranked by chi-squared) |

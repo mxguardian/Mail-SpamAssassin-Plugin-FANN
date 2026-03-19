@@ -19,6 +19,7 @@ use warnings;
 use re 'taint';
 
 use Errno qw(EBADF);
+use File::Basename;
 use File::Spec;
 use Config;
 
@@ -59,6 +60,7 @@ GetOptions(
   'debug|D:s'          => \$opt{'debug'},
   'local|L'            => \$opt{'local'},
   'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
+  'dump-hits=s'        => \$opt{'dump_hits'},
   'help|h'             => \$opt{'help'},
   'version|V'          => \$opt{'version'},
 ) or usage();
@@ -139,7 +141,6 @@ my $train_epochs    = $opt{'epochs'}     || $conf->{fann_train_epochs};
 my $learning_rate   = $conf->{fann_learning_rate};
 my $momentum        = $conf->{fann_momentum};
 my $train_algorithm = $conf->{fann_train_algorithm};
-my $min_text_len    = $conf->{fann_min_text_len};
 
 # Collect message files from spam and ham directories
 my @spam_files = collect_files($spam_dir);
@@ -168,7 +169,7 @@ my @all_messages;
 
 if ($num_jobs <= 1) {
   # Single-process mode
-  my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $min_text_len, $opt{'progress'});
+  my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $opt{'progress'});
   %vocabulary_terms = %{ $results->{vocabulary_terms} };
   $total_docs = $results->{total_docs};
   $spam_count = $results->{spam_count};
@@ -222,7 +223,7 @@ if ($num_jobs <= 1) {
       $child_plugin->{training_mode} = 1;
 
       my $results = process_batch($child_sa, $child_plugin, $chunks[$job_id],
-                                  $min_text_len, $opt{'progress'});
+                                  $opt{'progress'});
 
       my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
       $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
@@ -267,6 +268,20 @@ if ($num_jobs <= 1) {
 print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
 print "Raw vocabulary: " . scalar(keys %vocabulary_terms) . " terms\n";
 print "Rules seen: " . scalar(grep { /^rule:/ } keys %vocabulary_terms) . "\n";
+
+# Dump per-message rule hits if requested
+if ($opt{'dump_hits'}) {
+  my $hits_path = Mail::SpamAssassin::Util::untaint_file_path($opt{'dump_hits'});
+  open(my $hfh, '>', $hits_path) or die "Cannot open $hits_path: $!\n";
+  for my $msg (@all_messages) {
+    my $label = $msg->{label} ? 'spam' : 'ham';
+    my $hits = $msg->{rule_hits} || {};
+    my $rules = join(',', sort keys %$hits) || '-';
+    printf $hfh "%s\t%s\t%s\n", $msg->{file}, $label, $rules;
+  }
+  close $hfh;
+  printf "Wrote rule hits for %d messages to %s\n", scalar(@all_messages), $hits_path;
+}
 
 # Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
 # Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
@@ -406,7 +421,7 @@ exit 0;
 # --- Helper functions ---
 
 sub process_batch {
-  my ($sa, $plugin, $entries, $min_text_len, $show_progress) = @_;
+  my ($sa, $plugin, $entries, $show_progress) = @_;
 
   my %vocab;
   my $total_docs = 0;
@@ -424,7 +439,7 @@ sub process_batch {
       printf STDERR "\r  %d/%d", $files_done, $total_files;
     }
 
-    my ($tokens, $rule_hits) = process_message($sa, $plugin, $file, $min_text_len);
+    my ($tokens, $rule_hits) = process_message($sa, $plugin, $file);
     next unless $tokens && @$tokens;
 
     my @tokens = @$tokens;
@@ -461,7 +476,8 @@ sub process_batch {
       }
     }
 
-    push @messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits };
+    push @messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits,
+                       file => basename($file) };
   }
 
   print STDERR "\r" . (" " x 40) . "\r" if $show_progress && -t STDERR;
@@ -491,7 +507,7 @@ sub collect_files {
 }
 
 sub process_message {
-  my ($spamtest, $nn_plugin, $file, $min_text_len) = @_;
+  my ($spamtest, $nn_plugin, $file) = @_;
 
   my $raw;
   if (!open(my $fh, '<', $file)) {
@@ -506,14 +522,6 @@ sub process_message {
 
   my $msg = $spamtest->parse(\$raw);
   return (undef, undef) unless $msg;
-
-  # Check minimum text length before doing expensive work
-  my $text_arr = $msg->get_visible_rendered_body_text_array();
-  my $text = join("\n", @{$text_arr});
-  if (!defined $text || length($text) < $min_text_len) {
-    $msg->finish();
-    return (undef, undef);
-  }
 
   my $pms = $spamtest->check($msg);
 

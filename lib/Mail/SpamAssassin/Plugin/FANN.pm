@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -75,10 +75,6 @@ sub set_config {
 =item fann_data_dir dirname (default: undef)
 
 Where FANN plugin will store its data.
-
-=item fann_min_text_len n (default: 256)
-
-Minimum number of characters of visible text required to run prediction on a message.
 
 =item fann_min_word_len n (default: 2)
 
@@ -130,12 +126,6 @@ Space-separated list of stopwords to ignore when tokenizing text.
     is_admin => 1,
     default => undef,
     type => $Mail::SpamAssassin::Conf::CONF_TYPE_STRING,
-  });
-  push(@cmds, {
-    setting => 'fann_min_text_len',
-    is_admin => 1,
-    default => 256,
-    type => $Mail::SpamAssassin::Conf::CONF_TYPE_NUMERIC,
   });
   push(@cmds, {
     setting => 'fann_min_word_len',
@@ -485,7 +475,6 @@ sub _run_fann_prediction {
 
   my $msg = $pms->{msg};
   my $conf = $self->{main}->{conf};
-  my $min_text_len = $conf->{fann_min_text_len};
 
   # Use cached vocabulary and model from finish_parsing_end
   my $vocab = $self->{nn_vocab};
@@ -510,18 +499,14 @@ sub _run_fann_prediction {
   my $idf         = $vocab->{idf};
   my $vocab_size  = scalar @$vocab_keys;
 
-  # Get email text, check minimum length, then extract all tokens
-  my $email_to_predict = $msg->get_visible_rendered_body_text_array();
-  $email_to_predict = join("\n", @{$email_to_predict});
-
+  # Extract tokens and compute TF-IDF vector
   my @tfidf_vec;
-  if ($vocab_size > 0 && defined $email_to_predict && length($email_to_predict) >= $min_text_len) {
+  if ($vocab_size > 0) {
     my @tokens = @{ $self->extract_tokens($msg, $pms) };
-
     my $vec = $self->compute_tfidf_vector(\@tokens, $vocab_keys, $vocab_index, $idf);
     @tfidf_vec = @$vec;
   } else {
-    @tfidf_vec = (0) x $vocab_size;
+    @tfidf_vec = ();
   }
 
   # Append binary rule features
