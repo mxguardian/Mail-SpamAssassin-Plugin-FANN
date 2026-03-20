@@ -410,6 +410,7 @@ eval {
 print "Vocabulary saved to $vocab_path ($vocab_size text terms, $rule_vocab_size rule terms)\n";
 
 my $elapsed = time() - $start_time;
+my $elapsed_str = sprintf("%d:%02d:%02d", int($elapsed/3600), int($elapsed%3600/60), $elapsed%60);
 print "\nTraining complete:\n";
 print "  Messages:      $total_docs ($spam_count spam, $ham_count ham)\n";
 print "  Text vocab:    $vocab_size terms\n";
@@ -418,7 +419,7 @@ print "  Total inputs:  $total_input_size\n";
 print "  Hidden units:  $num_hidden\n";
 print "  Epochs:        $train_epochs\n";
 print "  Model saved:   $dataset_path\n";
-print "  Time:          ${elapsed}s\n";
+print "  Time:          $elapsed_str\n";
 
 $spamtest->finish();
 exit 0;
