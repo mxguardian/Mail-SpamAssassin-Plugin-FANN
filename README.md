@@ -65,7 +65,7 @@ score   FANN_HAM_LO     -1.5
 | `fann_momentum` | 0.1 | FANN training momentum |
 | `fann_train_epochs` | 50 | Number of training epochs |
 | `fann_train_algorithm` | FANN_TRAIN_RPROP | Training algorithm |
-| `fann_stopwords` | (common English) | Space-separated stopwords to ignore |
+| `fann_stopwords` | (none) | Space-separated stopwords to ignore (can be specified multiple times) |
 
 ## Training
 

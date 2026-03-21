@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.12';
+our $VERSION = '0.13';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -113,9 +113,10 @@ Number of training epochs (used by sa-fann-train).
 
 Algorithm used by Fann neural network used when training, might increase speed depending on the data volume.
 
-=item fann_stopwords words (default: "the and for with that this from there their have be not but you your")
+=item fann_stopwords words (default: none)
 
-Space-separated list of stopwords to ignore when tokenizing text.
+Space-separated list of stopwords to ignore when tokenizing text. Can be specified
+multiple times.
 
 =back
 
@@ -197,8 +198,17 @@ Space-separated list of stopwords to ignore when tokenizing text.
   push(@cmds, {
     setting => 'fann_stopwords',
     is_admin => 1,
-    default => 'the and for with that this from there their have be not but you your',
-    type => $Mail::SpamAssassin::Conf::CONF_TYPE_STRING,
+    default => {},
+    type => $Mail::SpamAssassin::Conf::CONF_TYPE_HASH_KEY_VALUE,
+    code => sub {
+      my ($self, $key, $value, $line) = @_;
+      if ($value eq '') {
+        return $Mail::SpamAssassin::Conf::MISSING_REQUIRED_VALUE;
+      }
+      foreach my $word (split /\s+/, $value) {
+        $self->{fann_stopwords}{lc $word} = 1;
+      }
+    },
   });
 
   $conf->{parser}->register_commands(\@cmds);
@@ -280,7 +290,7 @@ sub tokenize_text {
 
     my $min_word_len = $conf->{fann_min_word_len};
     my $max_word_len = $conf->{fann_max_word_len};
-    my %stopwords    = map { lc($_) => 1 } split /\s+/, $conf->{fann_stopwords};
+    my $stopwords    = $conf->{fann_stopwords};
 
     return () unless defined $text;
     $text = lc $text;
@@ -300,7 +310,7 @@ sub tokenize_text {
     $text =~ s{[^\p{L}\p{N}\-]}{ }g;
     my @tokens = grep { length($_) >= $min_word_len && length($_) <= $max_word_len } split /\s+/, $text;
     @tokens = grep { $_ !~ /^\d+$/ } @tokens;         # drop pure numbers
-    @tokens = grep { !$stopwords{$_} } @tokens;        # drop stopwords
+    @tokens = grep { !$stopwords->{$_} } @tokens;      # drop stopwords
     if (defined $prefix && length $prefix) {
       @tokens = map { $prefix . $_ } @tokens;
     }
@@ -315,7 +325,7 @@ sub tokenize_filename {
     my $conf = $self->{main}->{conf};
 
     my $max_word_len = $conf->{fann_max_word_len};
-    my %stopwords    = map { lc($_) => 1 } split /\s+/, $conf->{fann_stopwords};
+    my $stopwords    = $conf->{fann_stopwords};
 
     return () unless defined $name && length $name;
 
@@ -326,7 +336,7 @@ sub tokenize_filename {
     $name = lc $name;
 
     my @tokens = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
-    @tokens = grep { !$stopwords{$_} } @tokens;
+    @tokens = grep { !$stopwords->{$_} } @tokens;
     if (defined $prefix && length $prefix) {
         @tokens = map { $prefix . $_ } @tokens;
     }
