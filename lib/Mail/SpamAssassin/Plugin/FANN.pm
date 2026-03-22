@@ -343,17 +343,97 @@ sub tokenize_filename {
     return @tokens;
 }
 
+# Return the text/html child part of a multipart part, or undef if none.
+sub _has_html_part {
+    my ($part) = @_;
+    foreach my $child (@{$part->{'body_parts'}}) {
+        return $child if $child->effective_type() eq 'text/html';
+    }
+    return undef;
+}
+
 # Extract all tokens from a message for FANN classification.
 # This method is public so that sa-fann-train can use the same tokenization.
 sub extract_tokens {
     my ($self, $msg, $pms) = @_;
     my @tokens;
 
-    # Body text
-    my $text_arr = $msg->get_visible_rendered_body_text_array();
-    my $text = join("\n", @{$text_arr});
-    if (defined $text && length $text) {
-        push @tokens, $self->tokenize_text($text, 'body:');
+    # Process MIME parts via queue
+    my @queue = ($msg);
+
+    while (my $part = shift @queue) {
+        my $type = $part->effective_type() || '';
+        my $name = $part->{name};
+        my $has_name = defined $name && length $name;
+
+        # Multipart containers
+        if ($type eq 'multipart/alternative') {
+            my $html = _has_html_part($part);
+            if ($html) {
+                push @queue, $html;
+            } else {
+                push @queue, @{$part->{'body_parts'}};
+            }
+            next;
+        }
+        if ($type =~ m{^multipart/}) {
+            push @queue, @{$part->{'body_parts'}};
+            next;
+        }
+
+        # Leaf parts - body (no filename)
+        if ($type =~ m{^text/} && !$has_name) {
+            my $rendered = $part->visible_rendered();
+            if (defined $rendered && length $rendered) {
+                push @tokens, $self->tokenize_text($rendered, 'body:');
+            }
+            next;
+        }
+
+        # Text/HTML attachment (has filename)
+        if ($type eq 'text/html' && $has_name) {
+            my $rendered = $part->visible_rendered();
+            if (defined $rendered && length $rendered) {
+                push @tokens, $self->tokenize_text($rendered, 'html:');
+            }
+            push @tokens, $self->tokenize_filename($name, 'attach:');
+            next;
+        }
+
+        # Other text attachment (has filename)
+        if ($type =~ m{^text/} && $has_name) {
+            my $rendered = $part->visible_rendered();
+            if (defined $rendered && length $rendered) {
+                push @tokens, $self->tokenize_text($rendered, 'text:');
+            }
+            push @tokens, $self->tokenize_filename($name, 'attach:');
+            next;
+        }
+
+        # PDF
+        if ($type eq 'application/pdf') {
+            my $rendered = $part->visible_rendered();
+            if (defined $rendered && length $rendered) {
+                push @tokens, $self->tokenize_text($rendered, 'pdf:');
+            }
+            push @tokens, $self->tokenize_filename($name, 'attach:') if $has_name;
+            next;
+        }
+
+        # Image (OCR via SpamAssassin)
+        if ($type =~ m{^image/}) {
+            my $rendered = $part->visible_rendered();
+            if (defined $rendered && length $rendered) {
+                push @tokens, $self->tokenize_text($rendered, 'image:');
+            }
+            push @tokens, $self->tokenize_filename($name, 'attach:') if $has_name;
+            next;
+        }
+
+        # Other types: filename only
+        if ($has_name) {
+            push @tokens, $self->tokenize_filename($name, 'attach:');
+        }
     }
 
     # From display name
@@ -366,13 +446,6 @@ sub extract_tokens {
     my $subject = $pms->get('Subject');
     if (defined $subject && length $subject) {
         push @tokens, $self->tokenize_text($subject, 'subj:');
-    }
-
-    # Attachment filenames
-    foreach my $part ($msg->find_parts(qr/./, 1)) {
-        my $name = $part->{name};
-        next unless defined $name && length $name;
-        push @tokens, $self->tokenize_filename($name, 'attach:');
     }
 
     # Link texts and URI TLDs
