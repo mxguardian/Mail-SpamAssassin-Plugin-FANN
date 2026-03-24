@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.14';
+our $VERSION = '0.15';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -47,6 +47,7 @@ use File::Spec;
 use Mail::SpamAssassin;
 use Mail::SpamAssassin::Plugin;
 use Mail::SpamAssassin::Util qw(untaint_file_path);
+use Encode;
 
 our @ISA = qw(Mail::SpamAssassin::Plugin);
 
@@ -293,6 +294,10 @@ sub tokenize_text {
     my $stopwords    = $conf->{fann_stopwords};
 
     return () unless defined $text;
+    # Ensure text is decoded to Perl characters so Unicode regexes work
+    if (!utf8::is_utf8($text)) {
+        $text = Encode::decode('UTF-8', $text, Encode::FB_DEFAULT);
+    }
     $text = lc $text;
     # Strip subject prefixes
     $text =~ s/^(?:[a-z]{2,12}:\s*){1,10}//i;
@@ -308,7 +313,18 @@ sub tokenize_text {
     # Replace HTML entities and punctuation with spaces
     $text =~ s/&[a-z#0-9]+;/ /g;
     $text =~ s{[^\p{L}\p{N}\-]}{ }g;
+    # Extract CJK character bigrams, then replace CJK runs with spaces
+    my @cjk_bigrams;
+    while ($text =~ /([\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]{2,})/g) {
+        my $run = $1;
+        my @chars = split //, $run;
+        for my $i (0 .. $#chars - 1) {
+            push @cjk_bigrams, $chars[$i] . $chars[$i+1];
+        }
+    }
+    $text =~ s/[\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]+/ /g;
     my @tokens = grep { length($_) >= $min_word_len && length($_) <= $max_word_len } split /\s+/, $text;
+    push @tokens, @cjk_bigrams;
     @tokens = grep { $_ !~ /^\d+$/ } @tokens;         # drop pure numbers
     @tokens = grep { !$stopwords->{$_} } @tokens;      # drop stopwords
     if (defined $prefix && length $prefix) {

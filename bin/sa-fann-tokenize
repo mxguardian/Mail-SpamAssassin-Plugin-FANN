@@ -18,6 +18,8 @@ use strict;
 use warnings;
 use re 'taint';
 
+binmode(STDOUT, ':utf8');
+
 use Getopt::Long;
 use Pod::Usage;
 use POSIX qw(locale_h);
