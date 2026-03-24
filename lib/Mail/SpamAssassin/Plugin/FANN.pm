@@ -344,14 +344,29 @@ sub tokenize_filename {
     my $stopwords    = $conf->{fann_stopwords};
 
     return () unless defined $name && length $name;
+    # Ensure name is decoded to Perl characters so Unicode regexes work
+    if (!utf8::is_utf8($name)) {
+        $name = Encode::decode('UTF-8', $name, Encode::FB_DEFAULT);
+    }
 
     # Split camelCase: insert space before uppercase preceded by lowercase
     $name =~ s/([a-z])([A-Z])/$1 $2/g;
     # Replace numbers and non-letter chars with spaces
-    $name =~ s/[^a-zA-Z]/ /g;
+    $name =~ s/[^\p{L}]/ /g;
     $name = lc $name;
 
+    # Extract CJK character bigrams, then replace CJK runs with spaces
+    my @cjk_bigrams;
+    while ($name =~ /([\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]{2,})/g) {
+        my $run = $1;
+        my @chars = split //, $run;
+        for my $i (0 .. $#chars - 1) {
+            push @cjk_bigrams, $chars[$i] . $chars[$i+1];
+        }
+    }
+    $name =~ s/[\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]+/ /g;
     my @tokens = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
+    push @tokens, @cjk_bigrams;
     @tokens = grep { !$stopwords->{$_} } @tokens;
     if (defined $prefix && length $prefix) {
         @tokens = map { $prefix . $_ } @tokens;
