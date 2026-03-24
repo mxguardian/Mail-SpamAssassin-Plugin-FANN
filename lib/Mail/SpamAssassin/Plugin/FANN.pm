@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -452,9 +452,13 @@ sub extract_tokens {
     my $uri_detail = $pms->get_uri_detail_list();
     if ($uri_detail) {
         for my $uri_info (values %$uri_detail) {
-            if ($uri_info->{text}) {
-                for my $txt (@{$uri_info->{text}}) {
+            if ($uri_info->{anchor_text}) {
+                for my $txt (@{$uri_info->{anchor_text}}) {
                     next unless defined $txt && length $txt;
+                    if ($txt =~ s/<img[^>]*>//gi) {
+                        push @tokens, 'link:<img>';
+                    }
+                    next unless $txt =~ /\S/;
                     push @tokens, $self->tokenize_text($txt, 'link:');
                 }
             }
