@@ -24,7 +24,7 @@ Usage: sa-fann-dump [options]
 
 Options:
   --path file     Path to vocabulary.data (default: ~/.spamassassin/fann_data/vocabulary.data)
-  --prefix str    Show only terms with this prefix (e.g. body:, subj:, from:, attach:)
+  --prefix str    Show only terms with this prefix (e.g. body:, subj:, from:, fn:, attach:)
   --rules         Shorthand for --prefix rule:
   --chi2          Sort by chi-squared score (most discriminative first)
   --top N         Show only the top N terms (use with --chi2)

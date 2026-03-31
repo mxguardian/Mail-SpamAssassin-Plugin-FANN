@@ -177,8 +177,8 @@ useful for debugging and understanding what features the neural network sees
 for a given message.
 
 Tokens are printed one per line, sorted alphabetically. Each token is prefixed
-with its type (e.g. C<body:>, C<subj:>, C<from:>, C<attach:>, C<link:>,
-C<utld:>, C<ftld:>, C<cc:>).
+with its type (e.g. C<body:>, C<subj:>, C<from:>, C<fn:>, C<attach:>, C<link:>,
+C<image:>, C<utld:>, C<ftld:>, C<cc:>).
 
 Use the B<--rules> flag to also output C<rule:> tokens from SpamAssassin rule
 hits.
