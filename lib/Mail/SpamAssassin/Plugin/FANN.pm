@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.16';
+our $VERSION = '0.17';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -113,6 +113,13 @@ Number of training epochs (used by sa-fann-train).
 =item fann_train_algorithm FANN_TRAIN_QUICKPROP|FANN_TRAIN_RPROP|FANN_TRAIN_BATCH|FANN_TRAIN_INCREMENTAL (default: FANN_TRAIN_RPROP)
 
 Algorithm used by Fann neural network used when training, might increase speed depending on the data volume.
+
+=item fann_exclude_rules rulename ... (default: none)
+
+Space-separated list of SpamAssassin rule names to exclude from FANN
+features. Useful when a rule is redundant with another token (e.g.
+C<__MXG_ENGLISH> is already captured by C<lang:en>). Can be specified
+multiple times.
 
 =item fann_stopwords words (default: none)
 
@@ -195,6 +202,21 @@ multiple times.
         $self->{fann_train_algorithm} = $algorithm_map{$value};
     },
     type => $Mail::SpamAssassin::Conf::CONF_TYPE_NUMERIC,
+  });
+  push(@cmds, {
+    setting => 'fann_exclude_rules',
+    is_admin => 1,
+    default => {},
+    type => $Mail::SpamAssassin::Conf::CONF_TYPE_HASH_KEY_VALUE,
+    code => sub {
+      my ($self, $key, $value, $line) = @_;
+      if ($value eq '') {
+        return $Mail::SpamAssassin::Conf::MISSING_REQUIRED_VALUE;
+      }
+      foreach my $rule (split /\s+/, $value) {
+        $self->{fann_exclude_rules}{$rule} = 1;
+      }
+    },
   });
   push(@cmds, {
     setting => 'fann_stopwords',
@@ -504,6 +526,13 @@ sub extract_tokens {
                     push @tokens, $self->tokenize_text($txt, 'link:');
                 }
             }
+            if ($uri_info->{uris}) {
+                for my $uri (keys %{$uri_info->{uris}}) {
+                    if ($uri =~ m{^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]+/[^?#]*\.([a-zA-Z0-9]{1,8})(?:[?#]|$)}) {
+                        push @tokens, "uext:" . lc($1);
+                    }
+                }
+            }
             if ($uri_info->{domains}) {
                 for my $domain (keys %{$uri_info->{domains}}) {
                     (my $tld = lc $domain) =~ s/^[^.]+\.//;
@@ -625,13 +654,20 @@ sub _run_fann_prediction {
   my @rule_vec;
   if (@$rule_keys) {
     my %hits;
+    my $exclude = $conf->{fann_exclude_rules} || {};
     my $hit_str = $pms->get_names_of_tests_hit();
     if ($hit_str) {
-      $hits{$_} = 1 for split(/,/, $hit_str);
+      for my $r (split(/,/, $hit_str)) {
+        next if $exclude->{$r};
+        $hits{$r} = 1;
+      }
     }
     my $sub_str = $pms->get_names_of_subtests_hit();
     if ($sub_str) {
-      $hits{$_} = 1 for split(/,/, $sub_str);
+      for my $r (split(/,/, $sub_str)) {
+        next if $exclude->{$r};
+        $hits{$r} = 1;
+      }
     }
     @rule_vec = map { $hits{ substr($_, 5) } ? 1 : 0 } @$rule_keys;
   }

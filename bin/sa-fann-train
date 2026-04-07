@@ -537,13 +537,20 @@ sub process_message {
 
   # Extract rule hits separately (binary features, not TF-IDF tokens)
   my %rule_hits;
+  my $exclude_rules = $spamtest->{conf}->{fann_exclude_rules} || {};
   my $hit_str = $pms->get_names_of_tests_hit();
   if ($hit_str) {
-    %rule_hits = map { $_ => 1 } split(/,/, $hit_str);
+    for my $r (split(/,/, $hit_str)) {
+      next if $exclude_rules->{$r};
+      $rule_hits{$r} = 1;
+    }
   }
   my $sub_str = $pms->get_names_of_subtests_hit();
   if ($sub_str) {
-    $rule_hits{$_} = 1 for split(/,/, $sub_str);
+    for my $r (split(/,/, $sub_str)) {
+      next if $exclude_rules->{$r};
+      $rule_hits{$r} = 1;
+    }
   }
 
   $pms->finish();
