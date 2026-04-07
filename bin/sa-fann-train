@@ -55,6 +55,11 @@ GetOptions(
   'siteconfigpath=s'   => \$opt{'siteconfigpath'},
   'prefspath|p=s'      => \$opt{'prefspath'},
   'hidden=i'           => \$opt{'hidden'},
+  'hidden2=i'          => \$opt{'hidden2'},
+  'hidden3=i'          => \$opt{'hidden3'},
+  'prune-method=s'     => \$opt{'prune_method'},
+  'min-df=f'           => \$opt{'min_df'},
+  'max-df=f'           => \$opt{'max_df'},
   'jobs|j=i'           => \$opt{'jobs'},
   'progress'           => \$opt{'progress'},
   'debug|D:s'          => \$opt{'debug'},
@@ -62,6 +67,7 @@ GetOptions(
   'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
   'dump-hits=s'        => \$opt{'dump_hits'},
   'seed=i'             => \$opt{'seed'},
+  'log=s'              => \$opt{'log'},
   'help|h'             => \$opt{'help'},
   'version|V'          => \$opt{'version'},
 ) or usage();
@@ -89,6 +95,18 @@ die "Ham directory '$ham_dir' does not exist or is not a directory\n"   unless -
 
 my $start_time = time();
 
+# Set up log file
+my $LOG;
+if ($opt{'log'}) {
+  my $log_path = Mail::SpamAssassin::Util::untaint_file_path($opt{'log'});
+  open($LOG, '>', $log_path) or die "Cannot open log file $log_path: $!\n";
+  $LOG->autoflush(1);
+}
+
+sub log_msg {
+  print $LOG @_ if $LOG;
+}
+
 # Create the SpamAssassin instance
 my $spamtest = Mail::SpamAssassin->new(
   {
@@ -109,6 +127,11 @@ $spamtest->{conf}->{use_bayes} = 0;
 # Optionally disable RBL checks while keeping other network tests enabled
 if ($opt{'skip_rbl_checks'}) {
   $spamtest->{conf}->{skip_rbl_checks} = 1;
+  $spamtest->{conf}->{skip_uribl_checks} = 1;
+  # Also disable DCC, Pyzor, Razor network checks for consistent results
+  $spamtest->{conf}->{use_dcc} = 0;
+  $spamtest->{conf}->{use_pyzor} = 0;
+  $spamtest->{conf}->{use_razor2} = 0;
 }
 
 # Find the FANN plugin instance
@@ -211,6 +234,10 @@ if ($num_jobs <= 1) {
       $child_sa->{conf}->{use_bayes} = 0;
       if ($opt{'skip_rbl_checks'}) {
         $child_sa->{conf}->{skip_rbl_checks} = 1;
+        $child_sa->{conf}->{skip_uribl_checks} = 1;
+        $child_sa->{conf}->{use_dcc} = 0;
+        $child_sa->{conf}->{use_pyzor} = 0;
+        $child_sa->{conf}->{use_razor2} = 0;
       }
 
       my $child_plugin;
@@ -284,42 +311,127 @@ if ($opt{'dump_hits'}) {
   printf "Wrote rule hits for %d messages to %s\n", scalar(@all_messages), $hits_path;
 }
 
-# Phase 2: Prune vocabulary to vocab_cap terms by chi-squared score
-# Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
-my $chi2_threshold = 3.841;
-my %chi2;
-foreach my $t (keys %vocabulary_terms) {
-  my $a = $vocabulary_terms{$t}{spam} || 0;  # spam docs with term
-  my $b = $vocabulary_terms{$t}{ham}  || 0;  # ham docs with term
-  my $c = $spam_count - $a;                  # spam docs without term
-  my $d = $ham_count  - $b;                  # ham docs without term
-  my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
-  if ($denom > 0) {
-    $chi2{$t} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
-  } else {
-    $chi2{$t} = 0;
-  }
-}
-
-# Remove terms below chi-squared significance threshold
+# Phase 2: Prune vocabulary
+my $prune_method = $opt{'prune_method'} || 'chi2';
 my $before_prune = scalar keys %vocabulary_terms;
-delete $vocabulary_terms{$_} for grep { $chi2{$_} < $chi2_threshold } keys %vocabulary_terms;
-my $after_sig = scalar keys %vocabulary_terms;
-print "Pruned $before_prune -> $after_sig terms (chi-squared >= $chi2_threshold)\n";
 
-# If text terms exceed vocab_cap, keep only the top text terms (rules are always kept)
+# Separate rule terms from text terms
 my %rule_terms = map { $_ => delete $vocabulary_terms{$_} } grep { /^rule:/ } keys %vocabulary_terms;
-my $text_count = scalar keys %vocabulary_terms;
-if ($text_count > $vocab_cap) {
-  my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vocabulary_terms;
-  my %pruned;
-  for my $i (0 .. $vocab_cap-1) {
-    last unless defined $top[$i];
-    $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
+
+if ($prune_method eq 'df') {
+  # Document frequency pruning: keep terms within min/max DF range
+  my $min_df_pct = $opt{'min_df'} || 0.001;
+  my $max_df_pct = $opt{'max_df'};
+  my $min_df = int($total_docs * $min_df_pct) || 1;
+  my $max_df = $max_df_pct ? int($total_docs * $max_df_pct) : undef;
+
+  # Remove terms below minimum document frequency
+  my @pruned_min_df = sort grep {
+    ($vocabulary_terms{$_}{docs} || 0) < $min_df
+  } keys %vocabulary_terms;
+  delete $vocabulary_terms{$_} for @pruned_min_df;
+  my $after_mindf = scalar keys %vocabulary_terms;
+  printf "Pruned $before_prune -> $after_mindf text terms (min_df >= %.1f%%, %d docs)\n",
+    $min_df_pct * 100, $min_df;
+
+  # Remove terms above maximum document frequency
+  if (defined $max_df) {
+    my $before_maxdf = scalar keys %vocabulary_terms;
+    my @pruned_max_df = sort {
+      ($vocabulary_terms{$b}{docs}||0) <=> ($vocabulary_terms{$a}{docs}||0)
+    } grep {
+      ($vocabulary_terms{$_}{docs} || 0) > $max_df
+    } keys %vocabulary_terms;
+    if (@pruned_max_df) {
+      log_msg "Removed text terms (max_df):\n";
+      for my $t (@pruned_max_df) {
+        my $df = $vocabulary_terms{$t}{docs} || 0;
+        log_msg sprintf("  %-30s  df=%d (%.1f%%)\n", $t, $df, 100 * $df / $total_docs);
+      }
+    }
+    delete $vocabulary_terms{$_} for @pruned_max_df;
+    my $after_maxdf = scalar keys %vocabulary_terms;
+    printf "Pruned $before_maxdf -> $after_maxdf text terms (max_df <= %.0f%%, %d docs)\n",
+      $max_df_pct * 100, $max_df;
   }
-  %vocabulary_terms = %pruned;
-  print "Capped text vocabulary to $vocab_cap terms\n";
+
+  # Cap at vocab_cap by document frequency
+  my $text_count = scalar keys %vocabulary_terms;
+  if ($text_count > $vocab_cap) {
+    my @top = sort { ($vocabulary_terms{$b}{docs}||0) <=> ($vocabulary_terms{$a}{docs}||0) } keys %vocabulary_terms;
+    my %pruned;
+    for my $i (0 .. $vocab_cap-1) {
+      last unless defined $top[$i];
+      $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
+    }
+    %vocabulary_terms = %pruned;
+    print "Capped text vocabulary to $vocab_cap terms\n";
+  }
+} else {
+  # Chi-squared pruning (default)
+  # Chi-squared critical value at p=0.05 with 1 degree of freedom is 3.841
+  my $chi2_threshold = 3.841;
+  my %chi2;
+  foreach my $t (keys %vocabulary_terms) {
+    my $a = $vocabulary_terms{$t}{spam} || 0;  # spam docs with term
+    my $b = $vocabulary_terms{$t}{ham}  || 0;  # ham docs with term
+    my $c = $spam_count - $a;                  # spam docs without term
+    my $d = $ham_count  - $b;                  # ham docs without term
+    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+    if ($denom > 0) {
+      $chi2{$t} = $total_docs * ($a * $d - $b * $c) ** 2 / $denom;
+    } else {
+      $chi2{$t} = 0;
+    }
+  }
+
+  # Remove terms below chi-squared significance threshold
+  delete $vocabulary_terms{$_} for grep { $chi2{$_} < $chi2_threshold } keys %vocabulary_terms;
+  my $after_sig = scalar keys %vocabulary_terms;
+  print "Pruned $before_prune -> $after_sig text terms (chi-squared >= $chi2_threshold)\n";
+
+  # If text terms exceed vocab_cap, keep only the top text terms
+  my $text_count = scalar keys %vocabulary_terms;
+  if ($text_count > $vocab_cap) {
+    my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vocabulary_terms;
+    my %pruned;
+    for my $i (0 .. $vocab_cap-1) {
+      last unless defined $top[$i];
+      $pruned{$top[$i]} = $vocabulary_terms{$top[$i]};
+    }
+    %vocabulary_terms = %pruned;
+    print "Capped text vocabulary to $vocab_cap terms\n";
+  }
 }
+
+# Prune rule terms by document frequency
+my $rule_before = scalar keys %rule_terms;
+{
+  my $min_df_pct = $opt{'min_df'} || 0.001;
+  my $min_df = int($total_docs * $min_df_pct) || 1;
+  delete $rule_terms{$_} for grep {
+    ($rule_terms{$_}{docs} || 0) < $min_df
+  } keys %rule_terms;
+  if (defined $opt{'max_df'}) {
+    my $max_df = int($total_docs * $opt{'max_df'});
+    my @pruned_rules = sort {
+      ($rule_terms{$b}{docs}||0) <=> ($rule_terms{$a}{docs}||0)
+    } grep {
+      ($rule_terms{$_}{docs} || 0) > $max_df
+    } keys %rule_terms;
+    if (@pruned_rules) {
+      log_msg "Removed rule terms (max_df):\n";
+      for my $t (@pruned_rules) {
+        my $df = $rule_terms{$t}{docs} || 0;
+        log_msg sprintf("  %-40s  df=%d (%.1f%%)\n", $t, $df, 100 * $df / $total_docs);
+      }
+    }
+    delete $rule_terms{$_} for @pruned_rules;
+  }
+}
+my $rule_after = scalar keys %rule_terms;
+print "Pruned $rule_before -> $rule_after rule terms\n" if $rule_before != $rule_after;
+
 # Merge rules back in
 @vocabulary_terms{keys %rule_terms} = values %rule_terms;
 
@@ -362,9 +474,18 @@ print "Computed " . scalar(@train_vectors) . " feature vectors (dimension: $tota
 # Phase 3: Create and train FANN network
 print "Phase 3: Training neural network...\n";
 my $num_hidden = $opt{'hidden'} || int(sqrt($total_input_size)) || 1;
+my $num_hidden2 = $opt{'hidden2'};
+my $num_hidden3 = $opt{'hidden3'};
 
 srand($opt{'seed'}) if defined $opt{'seed'};
-my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
+my $network;
+if ($num_hidden3) {
+  $network = AI::FANN->new_standard($total_input_size, $num_hidden, $num_hidden2, $num_hidden3, 1);
+} elsif ($num_hidden2) {
+  $network = AI::FANN->new_standard($total_input_size, $num_hidden, $num_hidden2, 1);
+} else {
+  $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
+}
 $network->hidden_activation_function(FANN_SIGMOID_STEPWISE);
 $network->output_activation_function(FANN_SIGMOID_STEPWISE);
 $network->learning_rate($learning_rate);
@@ -378,7 +499,8 @@ for my $i (0 .. $#train_vectors) {
 }
 my $train_data = AI::FANN::TrainData->new(@td_args);
 
-print "Training: $total_input_size inputs ($vocab_size text + $rule_vocab_size rules), $num_hidden hidden, 1 output, $train_epochs epochs\n";
+my $hidden_str = $num_hidden . ($num_hidden2 ? "+$num_hidden2" : "") . ($num_hidden3 ? "+$num_hidden3" : "");
+print "Training: $total_input_size inputs ($vocab_size text + $rule_vocab_size rules), $hidden_str hidden, 1 output, $train_epochs epochs\n";
 $network->train_on_data($train_data, $train_epochs, 0, 0);
 
 # Save model
@@ -416,7 +538,7 @@ print "  Messages:      $total_docs ($spam_count spam, $ham_count ham)\n";
 print "  Text vocab:    $vocab_size terms\n";
 print "  Rule features: $rule_vocab_size\n";
 print "  Total inputs:  $total_input_size\n";
-print "  Hidden units:  $num_hidden\n";
+print "  Hidden units:  $hidden_str\n";
 print "  Epochs:        $train_epochs\n";
 print "  Model saved:   $dataset_path\n";
 print "  Time:          $elapsed_str\n";

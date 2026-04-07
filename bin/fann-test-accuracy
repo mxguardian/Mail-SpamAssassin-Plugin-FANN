@@ -14,7 +14,7 @@ GetOptions(
   'prefspath|p=s'    => \$opt{prefspath},
   'local|L'          => \$opt{local},
   'skip-rbl-checks'  => \$opt{skip_rbl_checks},
-  'misclassified|m'  => \$opt{misclassified},
+  'log=s'            => \$opt{log},
   'help|h'           => \$opt{help},
 ) or die "Usage: fann-test-accuracy [options] [spam-dir] [ham-dir]\n";
 
@@ -31,7 +31,7 @@ Options:
   -p, --prefspath file       Path to user preferences file
   -L, --local                Use local tests only (no network tests)
   --skip-rbl-checks          Disable RBL checks (keep other network tests)
-  -m, --misclassified        Show details of misclassified messages
+  --log file                 Write misclassified details to log file
   -h, --help                 Show this help
 
 USAGE
@@ -55,6 +55,18 @@ $sa->{conf}->{use_bayes} = 0;
 # Optionally disable RBL checks while keeping other network tests enabled
 if ($opt{skip_rbl_checks}) {
   $sa->{conf}->{skip_rbl_checks} = 1;
+  $sa->{conf}->{skip_uribl_checks} = 1;
+  $sa->{conf}->{use_dcc} = 0;
+  $sa->{conf}->{use_pyzor} = 0;
+  $sa->{conf}->{use_razor2} = 0;
+}
+
+# Set up log file
+my $LOG;
+if ($opt{log}) {
+  my $log_path = Mail::SpamAssassin::Util::untaint_file_path($opt{log});
+  open($LOG, '>', $log_path) or die "Cannot open log file $log_path: $!\n";
+  $LOG->autoflush(1);
 }
 
 my %results;
@@ -98,11 +110,12 @@ printf "  Wrong:    %4d  (%5.1f%%)\n", $wrong, pct($wrong, $total);
 print "\n=== Prediction Distribution ===\n\n";
 print_histogram($s->{predictions}, $h->{predictions});
 
-if ($opt{misclassified}) {
-  print_misclassified("False Positives (ham hit FANN_SPAM)", $h->{misclassified});
-  print_misclassified("False Negatives (spam hit FANN_HAM)", $s->{misclassified});
-  print_misclassified("Unknown Spam (spam, no decision)", $s->{unknowns});
-  print_misclassified("Unknown Ham (ham, no decision)", $h->{unknowns});
+if ($LOG) {
+  print_misclassified($LOG, "False Positives (ham hit FANN_SPAM)", $h->{misclassified});
+  print_misclassified($LOG, "False Negatives (spam hit FANN_HAM)", $s->{misclassified});
+  print_misclassified($LOG, "Unknown Spam (spam, no decision)", $s->{unknowns});
+  print_misclassified($LOG, "Unknown Ham (ham, no decision)", $h->{unknowns});
+  close $LOG;
 }
 
 sub pct {
@@ -152,7 +165,7 @@ sub print_histogram {
 }
 
 sub print_misclassified {
-  my ($title, $items) = @_;
+  my ($fh, $title, $items) = @_;
   return unless @$items;
 
   # Sort by prediction confidence (most confident mistakes first)
@@ -160,13 +173,13 @@ sub print_misclassified {
     abs($b->{prediction} - 0.5) <=> abs($a->{prediction} - 0.5)
   } @$items;
 
-  print "\n=== $title (" . scalar(@sorted) . ") ===\n\n";
+  print $fh "\n=== $title (" . scalar(@sorted) . ") ===\n\n";
   for my $m (@sorted) {
-    printf "  %-30s  pred=%.4f\n", $m->{file}, $m->{prediction};
-    printf "    From:    %s\n", $m->{from};
-    printf "    Subject: %s\n", $m->{subject};
-    printf "    Rules:   %s\n", join(', ', @{$m->{rules}}) || '(none)';
-    print "\n";
+    printf $fh "  %-30s  pred=%.4f\n", $m->{file}, $m->{prediction};
+    printf $fh "    From:    %s\n", $m->{from};
+    printf $fh "    Subject: %s\n", $m->{subject};
+    printf $fh "    Rules:   %s\n", join(', ', @{$m->{rules}}) || '(none)';
+    print $fh "\n";
   }
 }
 
@@ -222,7 +235,7 @@ sub test_dir {
       my $is_wrong = ($category eq 'spam' && $label eq 'ham')
                    || ($category eq 'ham'  && $label eq 'spam');
 
-      if ($opt{misclassified} && ($is_wrong || $category eq 'unknown')) {
+      if ($LOG && ($is_wrong || $category eq 'unknown')) {
         my $from = $msg->get_header('From') || '';
         $from =~ s/\s+$//;
         my $subject = $msg->get_header('Subject') || '';
