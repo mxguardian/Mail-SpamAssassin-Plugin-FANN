@@ -1,0 +1,121 @@
+#!/usr/bin/perl
+#
+# add-name-in-subj-flag - Add 'name_in_subj' flag to X-MXG-Flags header
+# for corpus messages tagged with "Name" in MongoDB
+#
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use MXG::App;
+
+my %opt;
+GetOptions(
+    'dry-run'   => \$opt{dry_run},
+    'verbose'   => \$opt{verbose},
+    'progress'  => \$opt{progress},
+    'help|h'    => \$opt{help},
+) or die "Usage: add-name-in-subj-flag [options]\n";
+
+if ($opt{help}) {
+    print <<'USAGE';
+Usage: add-name-in-subj-flag [options]
+
+Add 'name_in_subj' flag to X-MXG-Flags header in corpus messages
+that are tagged with "Name" in MongoDB.
+
+Options:
+  --dry-run        Report what would be done without modifying files
+  --verbose        Print details for each file
+  --progress       Show progress counter
+  -h, --help       Show this help
+USAGE
+    exit 0;
+}
+
+my $app = MXG::App->new();
+my $corpus = $app->corpusService();
+my $iter = $corpus->search(tag => 'Name');
+
+my %stats = (
+    found         => 0,
+    modified      => 0,
+    already       => 0,
+    missing       => 0,
+);
+
+while (my $msg = $iter->()) {
+    $stats{found}++;
+    my $path = $msg->path;
+
+    if ($opt{progress} && -t STDERR) {
+        printf STDERR "\r  %d found, %d modified", $stats{found}, $stats{modified};
+    }
+
+    unless (-f $path) {
+        $stats{missing}++;
+        print "MISSING $path\n" if $opt{verbose};
+        next;
+    }
+
+    open(my $fh, '<:raw', $path) or do {
+        warn "Cannot read $path: $!\n";
+        next;
+    };
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    my $line_ending = ($content =~ /\r\n/) ? "\r\n" : "\n";
+    my @lines = split /\r?\n/, $content, -1;
+
+    # Find X-MXG-Flags header
+    my $flags_line_idx = -1;
+    my @existing_flags;
+
+    for my $i (0 .. $#lines) {
+        last if $lines[$i] eq '';  # end of headers
+
+        if ($lines[$i] =~ /^X-MXG-Flags:\s*(.*)/i) {
+            $flags_line_idx = $i;
+            @existing_flags = split /\s+/, $1;
+        }
+    }
+
+    # Skip if already flagged
+    if (grep { $_ eq 'name_in_subj' } @existing_flags) {
+        $stats{already}++;
+        print "SKIP $path: already has name_in_subj\n" if $opt{verbose};
+        next;
+    }
+
+    # Add the flag
+    if ($flags_line_idx >= 0) {
+        push @existing_flags, 'name_in_subj';
+        $lines[$flags_line_idx] = "X-MXG-Flags: " . join(' ', @existing_flags);
+    } else {
+        splice @lines, 0, 0, "X-MXG-Flags: name_in_subj";
+    }
+
+    $stats{modified}++;
+    print "ADD $path\n" if $opt{verbose};
+
+    unless ($opt{dry_run}) {
+        open(my $wfh, '>:raw', $path) or do {
+            warn "Cannot write $path: $!\n";
+            next;
+        };
+        print $wfh join($line_ending, @lines);
+        close $wfh;
+    }
+}
+
+print STDERR "\r" . (" " x 40) . "\r" if $opt{progress} && -t STDERR;
+
+print "\n=== Summary ===\n";
+print "Messages found:     $stats{found}\n";
+print "Modified:           $stats{modified}\n";
+print "Already flagged:    $stats{already}\n";
+print "Missing files:      $stats{missing}\n";
+print "\n";
+print "DRY RUN - no files were modified\n" if $opt{dry_run};
