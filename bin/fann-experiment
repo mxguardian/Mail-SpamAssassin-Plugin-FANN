@@ -1,0 +1,811 @@
+#!/usr/bin/env -S perl -T
+#
+# fann-experiment - Run training experiments with different hyperparameters
+#
+# Phase 1 (tokenization) is cached to disk so subsequent runs are fast.
+# Only Phase 2 (feature selection) and Phase 3 (training) are re-run.
+
+use strict;
+use warnings;
+use re 'taint';
+
+use Errno qw(EBADF);
+use File::Basename;
+use File::Spec;
+use Config;
+
+use Getopt::Long;
+use Pod::Usage;
+use POSIX qw(locale_h setsid sigprocmask _exit);
+
+POSIX::setlocale(LC_TIME,'C');
+
+use AI::FANN qw(:all);
+use Storable qw(store retrieve);
+use File::Temp qw(tempdir);
+
+use Mail::SpamAssassin;
+use Mail::SpamAssassin::Util;
+
+my %opt = ();
+
+GetOptions(
+  'spam=s'             => \$opt{'spam'},
+  'ham=s'              => \$opt{'ham'},
+  'test-spam=s'        => \$opt{'test_spam'},
+  'test-ham=s'         => \$opt{'test_ham'},
+  'cache=s'            => \$opt{'cache'},
+  'epochs=s'           => \$opt{'epochs'},
+  'vocab-cap=s'        => \$opt{'vocab_cap'},
+  'hidden=s'           => \$opt{'hidden'},
+  'learning-rate=s'    => \$opt{'learning_rate'},
+  'momentum=s'         => \$opt{'momentum'},
+  'algorithm=s'        => \$opt{'algorithm'},
+  'chi2=s'             => \$opt{'chi2'},
+  'activation=s'       => \$opt{'activation'},
+  'parallel=i'         => \$opt{'parallel'},
+  'configpath|C=s'     => \$opt{'configpath'},
+  'siteconfigpath=s'   => \$opt{'siteconfigpath'},
+  'prefspath|p=s'      => \$opt{'prefspath'},
+  'local|L'            => \$opt{'local'},
+  'skip-rbl-checks'    => \$opt{'skip_rbl_checks'},
+  'jobs|j=i'           => \$opt{'jobs'},
+  'progress'           => \$opt{'progress'},
+  'debug|D:s'          => \$opt{'debug'},
+  'seed=i'             => \$opt{'seed'},
+  'help|h'             => \$opt{'help'},
+) or die "Usage: fann-experiment [options]\n";
+
+if ($opt{'help'}) {
+  print <<'USAGE';
+Usage: fann-experiment --spam <dir> --ham <dir> --test-spam <dir> --test-ham <dir> [options]
+
+Run FANN training experiments with multiple hyperparameter values.
+Phase 1 (tokenization) is cached to --cache dir for fast iteration.
+
+Parameters accept comma-separated values for grid search:
+  --epochs 50,100,200        Training epochs to try
+  --vocab-cap 5000,10000     Vocab cap values to try
+  --hidden 50,100,auto       Hidden units (auto = sqrt(inputs))
+  --learning-rate 0.1,0.5    Learning rates to try
+  --momentum 0.0,0.1         Momentum values to try
+  --algorithm rprop,quickprop Training algorithms to try
+  --chi2 3.841,6.635         Chi-squared thresholds to try
+  --activation sigmoid_stepwise,sigmoid  Activation functions to try
+
+Other options:
+  --cache dir                Directory to cache Phase 1 results (default: /tmp/fann-cache)
+  --seed N                   Random seed for reproducibility
+  --jobs N                   Parallel workers for Phase 1
+  --progress                 Show progress
+  --skip-rbl-checks          Skip RBL checks
+  -h, --help                 Show this help
+USAGE
+  exit 0;
+}
+
+unless ($opt{'spam'} && $opt{'ham'} && $opt{'test_spam'} && $opt{'test_ham'}) {
+  die "Required: --spam, --ham, --test-spam, --test-ham\n";
+}
+
+my $spam_dir      = Mail::SpamAssassin::Util::untaint_file_path($opt{'spam'});
+my $ham_dir       = Mail::SpamAssassin::Util::untaint_file_path($opt{'ham'});
+my $test_spam_dir = Mail::SpamAssassin::Util::untaint_file_path($opt{'test_spam'});
+my $test_ham_dir  = Mail::SpamAssassin::Util::untaint_file_path($opt{'test_ham'});
+
+my $cache_dir = Mail::SpamAssassin::Util::untaint_file_path($opt{'cache'} || '/tmp/fann-cache');
+unless (-d $cache_dir) {
+  mkdir $cache_dir or die "Cannot create cache dir $cache_dir: $!\n";
+}
+
+# Parse parameter grids
+my @epochs_list    = parse_list($opt{'epochs'}        || '200');
+my @vocab_list     = parse_list($opt{'vocab_cap'}     || '10000');
+my @hidden_list    = parse_list($opt{'hidden'}        || 'auto');
+my @lr_list        = parse_list($opt{'learning_rate'} || '0.1');
+my @mom_list       = parse_list($opt{'momentum'}      || '0.1');
+my @algo_list      = parse_list($opt{'algorithm'}     || 'rprop');
+my @chi2_list      = parse_list($opt{'chi2'}          || '3.841');
+my @act_list       = parse_list($opt{'activation'}    || 'sigmoid_stepwise');
+
+my %algo_map = (
+  rprop       => FANN_TRAIN_RPROP,
+  quickprop   => FANN_TRAIN_QUICKPROP,
+  batch       => FANN_TRAIN_BATCH,
+  incremental => FANN_TRAIN_INCREMENTAL,
+);
+
+my %act_map = (
+  sigmoid_stepwise       => FANN_SIGMOID_STEPWISE,
+  sigmoid                => FANN_SIGMOID,
+  sigmoid_symmetric      => FANN_SIGMOID_SYMMETRIC,
+  sigmoid_symmetric_stepwise => FANN_SIGMOID_SYMMETRIC_STEPWISE,
+  linear                 => FANN_LINEAR,
+  gaussian               => FANN_GAUSSIAN,
+  gaussian_symmetric     => FANN_GAUSSIAN_SYMMETRIC,
+);
+
+# Create SpamAssassin instance
+my $spamtest = Mail::SpamAssassin->new({
+  rules_filename      => $opt{'configpath'},
+  site_rules_filename => $opt{'siteconfigpath'},
+  userprefs_filename  => $opt{'prefspath'},
+  debug               => $opt{'debug'},
+  local_tests_only    => $opt{'local'},
+  dont_copy_prefs     => 1,
+});
+$spamtest->init(1);
+$spamtest->{conf}->{use_bayes} = 0;
+if ($opt{'skip_rbl_checks'}) {
+  $spamtest->{conf}->{skip_rbl_checks} = 1;
+}
+
+# Find FANN plugin
+my $nn_plugin;
+foreach my $plugin (@{$spamtest->{plugins}->{plugins}}) {
+  if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+    $nn_plugin = $plugin;
+    last;
+  }
+}
+die "FANN plugin not loaded\n" unless $nn_plugin;
+$nn_plugin->{training_mode} = 1;
+
+# ============================================================
+# Phase 1: Tokenize training messages (cached)
+# ============================================================
+my $train_cache = File::Spec->catfile($cache_dir, 'train_phase1.dat');
+$train_cache = Mail::SpamAssassin::Util::untaint_file_path($train_cache);
+
+my ($vocabulary_terms, $total_docs, $spam_count, $ham_count, $all_messages);
+
+if (-f $train_cache) {
+  print "Loading cached Phase 1 training data from $train_cache...\n";
+  my $cached = retrieve($train_cache) or die "Failed to load cache\n";
+  $vocabulary_terms = $cached->{vocabulary_terms};
+  $total_docs       = $cached->{total_docs};
+  $spam_count       = $cached->{spam_count};
+  $ham_count        = $cached->{ham_count};
+  $all_messages     = $cached->{messages};
+  print "Loaded: $total_docs messages ($spam_count spam, $ham_count ham), " .
+        scalar(keys %$vocabulary_terms) . " raw terms\n";
+} else {
+  print "Phase 1: Building vocabulary (training set)...\n";
+  my @spam_files = collect_files($spam_dir);
+  my @ham_files  = collect_files($ham_dir);
+  print "Found " . scalar(@spam_files) . " spam, " . scalar(@ham_files) . " ham files\n";
+
+  my @all_entries = (
+    (map { [$_, 1] } @spam_files),
+    (map { [$_, 0] } @ham_files),
+  );
+
+  my $num_jobs = $opt{'jobs'} || 1;
+
+  if ($num_jobs <= 1) {
+    my $results = process_batch($spamtest, $nn_plugin, \@all_entries, $opt{'progress'});
+    $vocabulary_terms = $results->{vocabulary_terms};
+    $total_docs       = $results->{total_docs};
+    $spam_count       = $results->{spam_count};
+    $ham_count        = $results->{ham_count};
+    $all_messages     = $results->{messages};
+  } else {
+    # Multi-process mode
+    my $tmpdir = tempdir(CLEANUP => 1);
+    $tmpdir = Mail::SpamAssassin::Util::untaint_file_path($tmpdir);
+    my @chunks;
+    for my $i (0 .. $num_jobs - 1) { $chunks[$i] = []; }
+    for my $i (0 .. $#all_entries) {
+      push @{ $chunks[$i % $num_jobs] }, $all_entries[$i];
+    }
+    my @pids;
+    for my $job_id (0 .. $num_jobs - 1) {
+      next unless @{ $chunks[$job_id] };
+      my $pid = fork();
+      die "Failed to fork: $!\n" unless defined $pid;
+      if ($pid == 0) {
+        my $child_sa = Mail::SpamAssassin->new({
+          rules_filename      => $opt{'configpath'},
+          site_rules_filename => $opt{'siteconfigpath'},
+          userprefs_filename  => $opt{'prefspath'},
+          debug               => $opt{'debug'},
+          local_tests_only    => $opt{'local'},
+          dont_copy_prefs     => 1,
+        });
+        $child_sa->init(1);
+        $child_sa->{conf}->{use_bayes} = 0;
+        $child_sa->{conf}->{skip_rbl_checks} = 1 if $opt{'skip_rbl_checks'};
+        my $child_plugin;
+        foreach my $plugin (@{$child_sa->{plugins}->{plugins}}) {
+          if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+            $child_plugin = $plugin;
+            last;
+          }
+        }
+        die "FANN plugin not loaded in child\n" unless $child_plugin;
+        $child_plugin->{training_mode} = 1;
+        my $results = process_batch($child_sa, $child_plugin, $chunks[$job_id], $opt{'progress'});
+        my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+        $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+        store($results, $out_path) or die "Worker $job_id: failed to store results\n";
+        $child_sa->finish();
+        _exit(0);
+      }
+      push @pids, $pid;
+    }
+    for my $pid (@pids) {
+      waitpid($pid, 0);
+      die "Worker $pid exited with status $?\n" if $? != 0;
+    }
+    print STDERR "\r" . (" " x 40) . "\r" if $opt{'progress'} && -t STDERR;
+
+    my %merged_vocab;
+    $total_docs = 0; $spam_count = 0; $ham_count = 0;
+    my @merged_messages;
+    for my $job_id (0 .. $num_jobs - 1) {
+      my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+      $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+      next unless -f $out_path;
+      my $results = retrieve($out_path) or die "Failed to load worker $job_id\n";
+      $total_docs += $results->{total_docs};
+      $spam_count += $results->{spam_count};
+      $ham_count  += $results->{ham_count};
+      push @merged_messages, @{ $results->{messages} };
+      my $wv = $results->{vocabulary_terms};
+      for my $t (keys %$wv) {
+        for my $k (qw(total docs spam ham)) {
+          $merged_vocab{$t}{$k} = ($merged_vocab{$t}{$k} || 0) + ($wv->{$t}{$k} || 0);
+        }
+      }
+    }
+    $vocabulary_terms = \%merged_vocab;
+    $all_messages = \@merged_messages;
+  }
+
+  print "Caching Phase 1 results to $train_cache...\n";
+  store({
+    vocabulary_terms => $vocabulary_terms,
+    total_docs       => $total_docs,
+    spam_count       => $spam_count,
+    ham_count        => $ham_count,
+    messages         => $all_messages,
+  }, $train_cache) or die "Failed to store cache\n";
+  print "Processed $total_docs messages ($spam_count spam, $ham_count ham)\n";
+  print "Raw vocabulary: " . scalar(keys %$vocabulary_terms) . " terms\n";
+}
+
+# ============================================================
+# Phase 1b: Tokenize test messages (cached)
+# ============================================================
+my $test_cache = File::Spec->catfile($cache_dir, 'test_phase1.dat');
+$test_cache = Mail::SpamAssassin::Util::untaint_file_path($test_cache);
+
+my ($test_messages, $test_spam_count, $test_ham_count);
+
+if (-f $test_cache) {
+  print "Loading cached Phase 1 test data from $test_cache...\n";
+  my $cached = retrieve($test_cache) or die "Failed to load test cache\n";
+  $test_messages   = $cached->{messages};
+  $test_spam_count = $cached->{spam_count};
+  $test_ham_count  = $cached->{ham_count};
+  print "Loaded: " . scalar(@$test_messages) . " test messages ($test_spam_count spam, $test_ham_count ham)\n";
+} else {
+  print "Phase 1b: Tokenizing test messages...\n";
+  my @test_spam_files = collect_files($test_spam_dir);
+  my @test_ham_files  = collect_files($test_ham_dir);
+  print "Found " . scalar(@test_spam_files) . " test spam, " . scalar(@test_ham_files) . " test ham\n";
+
+  my @test_entries = (
+    (map { [$_, 1] } @test_spam_files),
+    (map { [$_, 0] } @test_ham_files),
+  );
+
+  my $num_jobs = $opt{'jobs'} || 1;
+  if ($num_jobs <= 1) {
+    my $results = process_batch($spamtest, $nn_plugin, \@test_entries, $opt{'progress'});
+    $test_messages   = $results->{messages};
+    $test_spam_count = $results->{spam_count};
+    $test_ham_count  = $results->{ham_count};
+  } else {
+    my $tmpdir = tempdir(CLEANUP => 1);
+    $tmpdir = Mail::SpamAssassin::Util::untaint_file_path($tmpdir);
+    my @chunks;
+    for my $i (0 .. $num_jobs - 1) { $chunks[$i] = []; }
+    for my $i (0 .. $#test_entries) {
+      push @{ $chunks[$i % $num_jobs] }, $test_entries[$i];
+    }
+    my @pids;
+    for my $job_id (0 .. $num_jobs - 1) {
+      next unless @{ $chunks[$job_id] };
+      my $pid = fork();
+      die "Failed to fork: $!\n" unless defined $pid;
+      if ($pid == 0) {
+        my $child_sa = Mail::SpamAssassin->new({
+          rules_filename      => $opt{'configpath'},
+          site_rules_filename => $opt{'siteconfigpath'},
+          userprefs_filename  => $opt{'prefspath'},
+          debug               => $opt{'debug'},
+          local_tests_only    => $opt{'local'},
+          dont_copy_prefs     => 1,
+        });
+        $child_sa->init(1);
+        $child_sa->{conf}->{use_bayes} = 0;
+        $child_sa->{conf}->{skip_rbl_checks} = 1 if $opt{'skip_rbl_checks'};
+        my $child_plugin;
+        foreach my $plugin (@{$child_sa->{plugins}->{plugins}}) {
+          if ($plugin->isa('Mail::SpamAssassin::Plugin::FANN')) {
+            $child_plugin = $plugin;
+            last;
+          }
+        }
+        die "FANN plugin not loaded in child\n" unless $child_plugin;
+        $child_plugin->{training_mode} = 1;
+        my $results = process_batch($child_sa, $child_plugin, $chunks[$job_id], $opt{'progress'});
+        my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+        $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+        store($results, $out_path) or die "Worker $job_id: failed to store results\n";
+        $child_sa->finish();
+        _exit(0);
+      }
+      push @pids, $pid;
+    }
+    for my $pid (@pids) {
+      waitpid($pid, 0);
+      die "Worker $pid exited with status $?\n" if $? != 0;
+    }
+    print STDERR "\r" . (" " x 40) . "\r" if $opt{'progress'} && -t STDERR;
+
+    $test_spam_count = 0; $test_ham_count = 0;
+    my @merged;
+    for my $job_id (0 .. $num_jobs - 1) {
+      my $out_path = File::Spec->catfile($tmpdir, "worker_$job_id.dat");
+      $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+      next unless -f $out_path;
+      my $results = retrieve($out_path) or die "Failed to load worker $job_id\n";
+      $test_spam_count += $results->{spam_count};
+      $test_ham_count  += $results->{ham_count};
+      push @merged, @{ $results->{messages} };
+    }
+    $test_messages = \@merged;
+  }
+
+  print "Caching Phase 1 test results...\n";
+  store({
+    messages   => $test_messages,
+    spam_count => $test_spam_count,
+    ham_count  => $test_ham_count,
+  }, $test_cache) or die "Failed to store test cache\n";
+}
+
+$spamtest->finish();
+
+# ============================================================
+# Build list of all experiment configurations
+# ============================================================
+my @experiments;
+
+for my $chi2_thresh (@chi2_list) {
+for my $vocab_cap (@vocab_list) {
+  for my $hidden_str (@hidden_list) {
+  for my $epochs (@epochs_list) {
+  for my $lr (@lr_list) {
+  for my $mom (@mom_list) {
+  for my $algo_name (@algo_list) {
+  for my $act_name (@act_list) {
+    push @experiments, {
+      chi2       => $chi2_thresh,
+      vocab_cap  => $vocab_cap,
+      hidden     => $hidden_str,
+      epochs     => $epochs,
+      lr         => $lr,
+      momentum   => $mom,
+      algorithm  => $algo_name,
+      activation => $act_name,
+    };
+  }}}}}}
+}}
+
+my $total_experiments = scalar @experiments;
+my $num_parallel = $opt{'parallel'} || 1;
+
+print "\n" . "=" x 70 . "\n";
+print "Running $total_experiments experiments" .
+      ($num_parallel > 1 ? " ($num_parallel parallel workers)" : "") . "\n";
+print "=" x 70 . "\n\n";
+
+# ============================================================
+# Run experiments (with optional parallelism)
+# ============================================================
+
+sub run_experiment {
+  my ($exp, $nn_plugin, $vocabulary_terms, $all_messages, $test_messages,
+      $total_docs, $spam_count, $ham_count, $test_spam_count, $test_ham_count, $seed) = @_;
+
+  my $chi2_thresh = $exp->{chi2};
+  my $vocab_cap   = $exp->{vocab_cap};
+  my $hidden_str  = $exp->{hidden};
+  my $epochs      = $exp->{epochs};
+  my $lr          = $exp->{lr};
+  my $mom         = $exp->{momentum};
+  my $algo_name   = $exp->{algorithm};
+  my $act_name    = $exp->{activation} || 'sigmoid_stepwise';
+
+  my %algo_map = (
+    rprop       => FANN_TRAIN_RPROP,
+    quickprop   => FANN_TRAIN_QUICKPROP,
+    batch       => FANN_TRAIN_BATCH,
+    incremental => FANN_TRAIN_INCREMENTAL,
+  );
+  my $algo = $algo_map{lc $algo_name};
+  return undef unless defined $algo;
+
+  # Feature selection
+  my %vt_copy = %$vocabulary_terms;
+  my %chi2;
+  foreach my $t (keys %vt_copy) {
+    my $a = $vt_copy{$t}{spam} || 0;
+    my $b = $vt_copy{$t}{ham}  || 0;
+    my $c = $spam_count - $a;
+    my $d = $ham_count  - $b;
+    my $denom = ($a + $b) * ($c + $d) * ($a + $c) * ($b + $d);
+    $chi2{$t} = $denom > 0 ? $total_docs * ($a * $d - $b * $c) ** 2 / $denom : 0;
+  }
+  delete $vt_copy{$_} for grep { $chi2{$_} < $chi2_thresh } keys %vt_copy;
+
+  my %rule_terms = map { $_ => delete $vt_copy{$_} } grep { /^rule:/ } keys %vt_copy;
+  my $text_count = scalar keys %vt_copy;
+  if ($text_count > $vocab_cap) {
+    my @top = sort { $chi2{$b} <=> $chi2{$a} } keys %vt_copy;
+    my %pruned;
+    for my $i (0 .. $vocab_cap-1) {
+      last unless defined $top[$i];
+      $pruned{$top[$i]} = $vt_copy{$top[$i]};
+    }
+    %vt_copy = %pruned;
+  }
+  @vt_copy{keys %rule_terms} = values %rule_terms;
+
+  my @vocab_keys = sort grep { !/^rule:/ } keys %vt_copy;
+  my @rule_keys  = sort grep { /^rule:/ } keys %vt_copy;
+  my $vocab_size = scalar @vocab_keys;
+  my $rule_vocab_size = scalar @rule_keys;
+  my $total_input_size = $vocab_size + $rule_vocab_size;
+  return undef unless $vocab_size > 0;
+
+  my %vocab_index = map { $vocab_keys[$_] => $_ } 0..$#vocab_keys;
+  my $N = $total_docs || 1;
+  my %idf;
+  foreach my $w (@vocab_keys) {
+    my $df = $vt_copy{$w}{docs} || 0;
+    $idf{$w} = log( ($N + 1) / ($df + 1) ) + 1;
+  }
+
+  # Compute training vectors
+  my (@train_vectors, @train_labels);
+  for my $msg (@$all_messages) {
+    my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
+    if (@rule_keys) {
+      my $hits = $msg->{rule_hits} || {};
+      push @$vec, map { $hits->{ substr($_, 5) } ? 1 : 0 } @rule_keys;
+    }
+    push @train_vectors, $vec;
+    push @train_labels, $msg->{label};
+  }
+
+  # Compute test vectors
+  my (@test_vectors, @test_labels);
+  for my $msg (@$test_messages) {
+    my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
+    if (@rule_keys) {
+      my $hits = $msg->{rule_hits} || {};
+      push @$vec, map { $hits->{ substr($_, 5) } ? 1 : 0 } @rule_keys;
+    }
+    push @test_vectors, $vec;
+    push @test_labels, $msg->{label};
+  }
+
+  my $num_hidden = ($hidden_str eq 'auto') ? int(sqrt($total_input_size)) || 1 : int($hidden_str);
+
+  # Train
+  my %act_map = (
+    sigmoid_stepwise       => FANN_SIGMOID_STEPWISE,
+    sigmoid                => FANN_SIGMOID,
+    sigmoid_symmetric      => FANN_SIGMOID_SYMMETRIC,
+    sigmoid_symmetric_stepwise => FANN_SIGMOID_SYMMETRIC_STEPWISE,
+    linear                 => FANN_LINEAR,
+    gaussian               => FANN_GAUSSIAN,
+    gaussian_symmetric     => FANN_GAUSSIAN_SYMMETRIC,
+  );
+  my $act_func = $act_map{lc $act_name};
+  return undef unless defined $act_func;
+
+  srand($seed);
+  my $network = AI::FANN->new_standard($total_input_size, $num_hidden, 1);
+  $network->hidden_activation_function($act_func);
+  $network->output_activation_function($act_func);
+  $network->learning_rate($lr);
+  $network->learning_momentum($mom);
+  $network->training_algorithm($algo);
+
+  my @td_args;
+  for my $i (0 .. $#train_vectors) {
+    push @td_args, $train_vectors[$i], [$train_labels[$i]];
+  }
+  my $train_data = AI::FANN::TrainData->new(@td_args);
+  $network->train_on_data($train_data, $epochs, 0, 0);
+
+  # Test
+  my ($spam_correct, $spam_wrong, $spam_unk) = (0, 0, 0);
+  my ($ham_correct, $ham_wrong, $ham_unk) = (0, 0, 0);
+
+  for my $i (0 .. $#test_vectors) {
+    my $output = $network->run($test_vectors[$i]);
+    my $pred = $output->[0];
+    my $label = $test_labels[$i];
+
+    if ($label == 1) {  # spam
+      if    ($pred >= 0.80) { $spam_correct++; }
+      elsif ($pred <= 0.40) { $spam_wrong++; }
+      else                  { $spam_unk++; }
+    } else {  # ham
+      if    ($pred <= 0.40) { $ham_correct++; }
+      elsif ($pred >= 0.80) { $ham_wrong++; }
+      else                  { $ham_unk++; }
+    }
+  }
+
+  my $total_test = $test_spam_count + $test_ham_count;
+  my $correct = $spam_correct + $ham_correct;
+  my $wrong = $spam_wrong + $ham_wrong;
+  my $accuracy = $total_test > 0 ? 100.0 * $correct / $total_test : 0;
+  my $spam_recall = $test_spam_count > 0 ? 100.0 * $spam_correct / $test_spam_count : 0;
+  my $ham_recall = $test_ham_count > 0 ? 100.0 * $ham_correct / $test_ham_count : 0;
+
+  return {
+    chi2          => $chi2_thresh,
+    vocab_cap     => $vocab_cap,
+    hidden        => $num_hidden,
+    epochs        => $epochs,
+    lr            => $lr,
+    momentum      => $mom,
+    algorithm     => $algo_name,
+    accuracy      => $accuracy,
+    spam_recall   => $spam_recall,
+    ham_recall    => $ham_recall,
+    spam_unk      => $spam_unk,
+    ham_unk       => $ham_unk,
+    wrong         => $wrong,
+    features      => $total_input_size,
+    text_features => $vocab_size,
+    rule_features => $rule_vocab_size,
+    activation    => $act_name,
+  };
+}
+
+my @results;
+
+if ($num_parallel <= 1) {
+  # Sequential mode
+  for my $i (0 .. $#experiments) {
+    my $r = run_experiment($experiments[$i], $nn_plugin,
+      $vocabulary_terms, $all_messages, $test_messages,
+      $total_docs, $spam_count, $ham_count, $test_spam_count, $test_ham_count,
+      $opt{'seed'} || 42);
+    next unless $r;
+    push @results, $r;
+    printf "[%d/%d] chi2=%.3f vcap=%d hid=%d ep=%d lr=%.3f mom=%.2f algo=%-9s act=%-16s | " .
+           "acc=%.1f%% spam=%.1f%% ham=%.1f%% wrong=%d (unk: %d spam, %d ham)\n",
+      $i+1, $total_experiments,
+      $r->{chi2}, $r->{vocab_cap}, $r->{hidden}, $r->{epochs},
+      $r->{lr}, $r->{momentum}, $r->{algorithm}, $r->{activation},
+      $r->{accuracy}, $r->{spam_recall}, $r->{ham_recall}, $r->{wrong},
+      $r->{spam_unk}, $r->{ham_unk};
+  }
+} else {
+  # Parallel mode: fork workers, each processes a slice of experiments
+  my $tmpdir = tempdir(CLEANUP => 1);
+  $tmpdir = Mail::SpamAssassin::Util::untaint_file_path($tmpdir);
+
+  # Split experiments across workers
+  my @chunks;
+  for my $i (0 .. $num_parallel - 1) { $chunks[$i] = []; }
+  for my $i (0 .. $#experiments) {
+    push @{ $chunks[$i % $num_parallel] }, [$i, $experiments[$i]];
+  }
+
+  my @pids;
+  for my $worker_id (0 .. $num_parallel - 1) {
+    next unless @{ $chunks[$worker_id] };
+    my $pid = fork();
+    die "Failed to fork: $!\n" unless defined $pid;
+
+    if ($pid == 0) {
+      # Child process — autoflush for live progress
+      $| = 1;
+      my @worker_results;
+      for my $item (@{ $chunks[$worker_id] }) {
+        my ($exp_idx, $exp) = @$item;
+        my $r = run_experiment($exp, $nn_plugin,
+          $vocabulary_terms, $all_messages, $test_messages,
+          $total_docs, $spam_count, $ham_count, $test_spam_count, $test_ham_count,
+          $opt{'seed'} || 42);
+        next unless $r;
+        $r->{exp_idx} = $exp_idx;
+        push @worker_results, $r;
+        printf "[w%d %d/%d] chi2=%.3f vcap=%d hid=%d ep=%d lr=%.3f mom=%.2f algo=%-9s act=%-16s | " .
+               "acc=%.1f%% spam=%.1f%% ham=%.1f%% wrong=%d\n",
+          $worker_id, scalar(@worker_results), scalar(@{ $chunks[$worker_id] }),
+          $r->{chi2}, $r->{vocab_cap}, $r->{hidden}, $r->{epochs},
+          $r->{lr}, $r->{momentum}, $r->{algorithm}, $r->{activation},
+          $r->{accuracy}, $r->{spam_recall}, $r->{ham_recall}, $r->{wrong};
+      }
+      my $out_path = File::Spec->catfile($tmpdir, "exp_worker_$worker_id.dat");
+      $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+      store(\@worker_results, $out_path) or die "Worker $worker_id: store failed\n";
+      _exit(0);
+    }
+    push @pids, $pid;
+  }
+
+  for my $pid (@pids) {
+    waitpid($pid, 0);
+    if ($? != 0) {
+      warn "Worker $pid exited with status $?\n";
+    }
+  }
+
+  # Merge results
+  for my $worker_id (0 .. $num_parallel - 1) {
+    my $out_path = File::Spec->catfile($tmpdir, "exp_worker_$worker_id.dat");
+    $out_path = Mail::SpamAssassin::Util::untaint_file_path($out_path);
+    next unless -f $out_path;
+    my $worker_results = retrieve($out_path) or next;
+    push @results, @$worker_results;
+  }
+}
+
+# Print sorted results — sort by fewest wrong, then highest accuracy
+print "\n" . "=" x 70 . "\n";
+print "Results sorted by fewest wrong classifications:\n";
+print "=" x 70 . "\n\n";
+
+my @sorted = sort { $a->{wrong} <=> $b->{wrong} || $b->{accuracy} <=> $a->{accuracy} } @results;
+printf "%-4s  %5s %5s %4s %4s %5s %4s %-9s %-16s  %5s %5s %5s %5s  %s\n",
+  "Rank", "Chi2", "VCap", "Hid", "Ep", "LR", "Mom", "Algo", "Activation",
+  "Acc%", "Spam%", "Ham%", "Wrong", "Features";
+
+for my $i (0 .. $#sorted) {
+  my $r = $sorted[$i];
+  printf "%4d  %5.2f %5d %4d %4d %5.3f %4.2f %-9s %-16s  %5.1f %5.1f %5.1f %5d  %d (%d+%d)\n",
+    $i+1, $r->{chi2}, $r->{vocab_cap}, $r->{hidden}, $r->{epochs},
+    $r->{lr}, $r->{momentum}, $r->{algorithm}, $r->{activation},
+    $r->{accuracy}, $r->{spam_recall}, $r->{ham_recall}, $r->{wrong},
+    $r->{features}, $r->{text_features}, $r->{rule_features};
+}
+
+# ============================================================
+# Helper functions (same as sa-fann-train)
+# ============================================================
+
+sub parse_list {
+  my ($str) = @_;
+  return split /,/, $str;
+}
+
+sub process_batch {
+  my ($sa, $plugin, $entries, $show_progress) = @_;
+
+  my %vocab;
+  my $total_docs = 0;
+  my $spam_count = 0;
+  my $ham_count  = 0;
+  my @messages;
+
+  my $total_files = scalar @$entries;
+  my $files_done = 0;
+
+  for my $entry (@$entries) {
+    my ($file, $label) = @$entry;
+    $files_done++;
+    if ($show_progress && -t STDERR) {
+      printf STDERR "\r  %d/%d", $files_done, $total_files;
+    }
+
+    my ($tokens, $rule_hits) = process_message($sa, $plugin, $file);
+    next unless $tokens && @$tokens;
+
+    my @tokens = @$tokens;
+    $total_docs++;
+    if ($label) { $spam_count++; } else { $ham_count++; }
+
+    my %seen;
+    foreach my $t (@tokens) {
+      $vocab{$t}{total} = ($vocab{$t}{total} || 0) + 1;
+      $seen{$t} = 1;
+    }
+    foreach my $t (keys %seen) {
+      $vocab{$t}{docs} = ($vocab{$t}{docs} || 0) + 1;
+      if ($label) {
+        $vocab{$t}{spam} = ($vocab{$t}{spam} || 0) + 1;
+      } else {
+        $vocab{$t}{ham} = ($vocab{$t}{ham} || 0) + 1;
+      }
+    }
+
+    if ($rule_hits) {
+      for my $r (keys %$rule_hits) {
+        my $rt = "rule:$r";
+        $vocab{$rt}{total} = ($vocab{$rt}{total} || 0) + 1;
+        $vocab{$rt}{docs} = ($vocab{$rt}{docs} || 0) + 1;
+        if ($label) {
+          $vocab{$rt}{spam} = ($vocab{$rt}{spam} || 0) + 1;
+        } else {
+          $vocab{$rt}{ham} = ($vocab{$rt}{ham} || 0) + 1;
+        }
+      }
+    }
+
+    push @messages, { tokens => \@tokens, label => $label, rule_hits => $rule_hits,
+                       file => basename($file) };
+  }
+
+  print STDERR "\r" . (" " x 40) . "\r" if $show_progress && -t STDERR;
+
+  return {
+    vocabulary_terms => \%vocab,
+    total_docs       => $total_docs,
+    spam_count       => $spam_count,
+    ham_count        => $ham_count,
+    messages         => \@messages,
+  };
+}
+
+sub collect_files {
+  my ($dir) = @_;
+  opendir(my $dh, $dir) or die "Cannot open directory $dir: $!\n";
+  my @files;
+  while (my $entry = readdir($dh)) {
+    next if $entry =~ /^\./;
+    my $path = File::Spec->catfile($dir, $entry);
+    next unless -f $path;
+    $path = Mail::SpamAssassin::Util::untaint_file_path($path);
+    push @files, $path;
+  }
+  closedir($dh);
+  return sort @files;
+}
+
+sub process_message {
+  my ($spamtest, $nn_plugin, $file) = @_;
+
+  my $raw;
+  if (!open(my $fh, '<', $file)) {
+    warn "Cannot open $file: $!\n";
+    return (undef, undef);
+  } else {
+    local $/;
+    $raw = <$fh>;
+    close $fh;
+  }
+  return (undef, undef) unless defined $raw && length($raw) > 0;
+
+  my $msg = $spamtest->parse(\$raw);
+  return (undef, undef) unless $msg;
+
+  my $pms = $spamtest->check($msg);
+  my $tokens = $nn_plugin->extract_tokens($msg, $pms);
+
+  my %rule_hits;
+  my $hit_str = $pms->get_names_of_tests_hit();
+  if ($hit_str) {
+    %rule_hits = map { $_ => 1 } split(/,/, $hit_str);
+  }
+  my $sub_str = $pms->get_names_of_subtests_hit();
+  if ($sub_str) {
+    $rule_hits{$_} = 1 for split(/,/, $sub_str);
+  }
+
+  $pms->finish();
+  $msg->finish();
+  return ($tokens, \%rule_hits);
+}
