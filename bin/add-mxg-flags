@@ -1,0 +1,354 @@
+#!/usr/bin/perl
+#
+# add-mxg-flags - Add sender reputation flags to corpus messages via the reputation API
+#
+# Parses each message's From header and Authentication-Results header to determine
+# the sender domain and authentication status, queries the reputation API, and
+# adds/updates the X-MXG-Flags header with the returned flags.
+#
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use File::Spec;
+use JSON::PP;
+use HTTP::Tiny;
+use Mail::AuthenticationResults::Parser;
+
+my %opt;
+GetOptions(
+    'api-url=s'   => \$opt{api_url},
+    'dry-run'     => \$opt{dry_run},
+    'verbose'     => \$opt{verbose},
+    'progress'    => \$opt{progress},
+    'help|h'      => \$opt{help},
+) or die "Usage: add-mxg-flags [options] <dir> [<dir> ...]\n";
+
+if ($opt{help}) {
+    print <<'USAGE';
+Usage: add-mxg-flags [options] <dir> [<dir> ...]
+
+Add sender reputation flags to corpus message files by querying the
+reputation API. Parses From and Authentication-Results headers from
+each message.
+
+Options:
+  --api-url URL    Reputation API base URL
+                   (default: http://172.16.1.151:8080/v1/sender-reputation)
+  --dry-run        Report what would be done without modifying files
+  --verbose        Print details for each file
+  --progress       Show progress counter
+  -h, --help       Show this help
+USAGE
+    exit 0;
+}
+
+die "Usage: add-mxg-flags [options] <dir> [<dir> ...]\n" unless @ARGV;
+
+my $api_url = $opt{api_url} || 'http://172.16.1.151:8080/v1/sender-reputation';
+my $http = HTTP::Tiny->new(timeout => 10);
+my $ar_parser = Mail::AuthenticationResults::Parser->new();
+
+# Cache API results by domain+authenticated
+my %api_cache;
+
+my %stats = (
+    files_scanned    => 0,
+    files_modified   => 0,
+    files_skipped    => 0,
+    no_from_domain   => 0,
+    api_errors       => 0,
+    flags_added      => 0,
+    no_flags         => 0,
+);
+
+for my $dir (@ARGV) {
+    die "Not a directory: $dir\n" unless -d $dir;
+    opendir(my $dh, $dir) or die "Cannot open $dir: $!\n";
+    my @files = sort grep { !/^\./ && -f File::Spec->catfile($dir, $_) } readdir($dh);
+    closedir($dh);
+
+    my $total = scalar @files;
+    my $done = 0;
+
+    for my $entry (@files) {
+        my $path = File::Spec->catfile($dir, $entry);
+        $done++;
+        if ($opt{progress} && -t STDERR) {
+            printf STDERR "\r  %s: %d/%d", $dir, $done, $total;
+        }
+        process_file($path);
+    }
+    print STDERR "\r" . (" " x 60) . "\r" if $opt{progress} && -t STDERR;
+}
+
+# Print summary
+print "\n=== Summary ===\n";
+print "Files scanned:      $stats{files_scanned}\n";
+print "Files modified:     $stats{files_modified}\n";
+print "No From domain:     $stats{no_from_domain}\n";
+print "API errors:         $stats{api_errors}\n";
+print "Flags added:        $stats{flags_added}\n";
+print "No flags returned:  $stats{no_flags}\n";
+print "Unique domains:     " . scalar(keys %api_cache) . "\n";
+print "\n";
+print "DRY RUN - no files were modified\n" if $opt{dry_run};
+
+sub process_file {
+    my ($path) = @_;
+    $stats{files_scanned}++;
+
+    open(my $fh, '<:raw', $path) or do {
+        warn "Cannot read $path: $!\n";
+        return;
+    };
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    my $line_ending = ($content =~ /\r\n/) ? "\r\n" : "\n";
+    my @lines = split /\r?\n/, $content, -1;
+
+    # Find header boundary and parse headers
+    my $header_end = 0;
+    my $from_header = '';
+    my @auth_results_lines;
+    my $flags_line_idx = -1;
+    my @existing_flags;
+
+    for my $i (0 .. $#lines) {
+        if ($lines[$i] eq '') {
+            $header_end = $i;
+            last;
+        }
+
+        # Collect From header (handle folded headers)
+        if ($lines[$i] =~ /^From:\s*(.*)/i) {
+            $from_header = $1;
+            # Collect continuation lines
+            for my $j ($i+1 .. $#lines) {
+                last if $lines[$j] eq '' || $lines[$j] !~ /^[ \t]/;
+                $from_header .= ' ' . $lines[$j];
+            }
+        }
+
+        # Collect Authentication-Results headers (handle folded headers)
+        if ($lines[$i] =~ /^Authentication-Results:\s*(.*)/i) {
+            my $ar = $1;
+            for my $j ($i+1 .. $#lines) {
+                last if $lines[$j] eq '' || $lines[$j] !~ /^[ \t]/;
+                $ar .= ' ' . $lines[$j];
+            }
+            push @auth_results_lines, $ar;
+        }
+
+        # Track existing X-MXG-Flags
+        if ($lines[$i] =~ /^X-MXG-Flags:\s*(.*)/i) {
+            $flags_line_idx = $i;
+            @existing_flags = split /\s+/, $1;
+        }
+    }
+
+    # Extract sender domain from From header
+    my $sender_domain = get_domain_from_header($from_header);
+    unless ($sender_domain) {
+        $stats{no_from_domain}++;
+        print "SKIP $path: no From domain\n" if $opt{verbose};
+        return;
+    }
+
+    # Determine authentication status
+    my $authenticated = is_sender_authenticated(\@auth_results_lines, $sender_domain) ? 1 : 0;
+
+    # Query API (with caching)
+    my $cache_key = "$sender_domain:$authenticated";
+    my $api_flags;
+    if (exists $api_cache{$cache_key}) {
+        $api_flags = $api_cache{$cache_key};
+    } else {
+        $api_flags = query_api($sender_domain, $authenticated);
+        $api_cache{$cache_key} = $api_flags;
+    }
+
+    unless (defined $api_flags) {
+        $stats{api_errors}++;
+        return;
+    }
+
+    # Merge with existing non-sender-rep flags (e.g. spoofed_from_name)
+    my %sender_rep_flags = map { $_ => 1 } qw(
+        high_sender_rep low_sender_rep low_sender_age
+    );
+    my @kept_existing = grep { !$sender_rep_flags{$_} } @existing_flags;
+    my %seen = map { $_ => 1 } @kept_existing;
+    my @merged = @kept_existing;
+    for my $f (@$api_flags) {
+        push @merged, $f unless $seen{$f}++;
+    }
+
+    unless (@merged) {
+        $stats{no_flags}++;
+        # Remove existing header if it only had sender rep flags
+        if ($flags_line_idx >= 0) {
+            splice @lines, $flags_line_idx, 1;
+            $stats{files_modified}++;
+            print "REMOVE $path: $sender_domain auth=$authenticated -> no flags\n" if $opt{verbose};
+            unless ($opt{dry_run}) {
+                open(my $wfh, '>:raw', $path) or do {
+                    warn "Cannot write $path: $!\n";
+                    return;
+                };
+                print $wfh join($line_ending, @lines);
+                close $wfh;
+            }
+        }
+        return;
+    }
+
+    my $new_flags_str = join(' ', @merged);
+
+    # Check if anything actually changed
+    my $old_flags_str = join(' ', @existing_flags);
+    if ($flags_line_idx >= 0 && $new_flags_str eq $old_flags_str) {
+        return;  # no change needed
+    }
+
+    if ($opt{verbose}) {
+        print "ADD $path: $sender_domain auth=$authenticated -> $new_flags_str\n";
+    }
+
+    $stats{flags_added}++;
+
+    # Update or insert X-MXG-Flags header
+    if ($flags_line_idx >= 0) {
+        $lines[$flags_line_idx] = "X-MXG-Flags: $new_flags_str";
+    } else {
+        # Insert as first header line
+        splice @lines, 0, 0, "X-MXG-Flags: $new_flags_str";
+    }
+
+    $stats{files_modified}++;
+
+    unless ($opt{dry_run}) {
+        open(my $wfh, '>:raw', $path) or do {
+            warn "Cannot write $path: $!\n";
+            return;
+        };
+        print $wfh join($line_ending, @lines);
+        close $wfh;
+    }
+}
+
+sub get_domain_from_header {
+    my ($from) = @_;
+    return undef unless defined $from && $from =~ /\S/;
+
+    # Extract email address from From header
+    my $email;
+    if ($from =~ /<([^>]+)>/) {
+        $email = $1;
+    } elsif ($from =~ /(\S+@\S+)/) {
+        $email = $1;
+    }
+    return undef unless $email;
+
+    # Extract domain
+    if ($email =~ /\@([^\s>]+)/) {
+        return lc $1;
+    }
+    return undef;
+}
+
+sub is_sender_authenticated {
+    my ($auth_results, $sender_domain) = @_;
+
+    my ($dmarc_result, $dkim_pass, $spf_pass);
+
+    for my $header (@$auth_results) {
+        my $results = eval { $ar_parser->parse($header) };
+        next unless ref($results) eq 'Mail::AuthenticationResults::Header';
+
+        # Only process headers from our own authserv-id
+        my $authserv_id = $results->value->value;
+        next unless $authserv_id =~ /^mxguardian\.(net|dev)$/;
+
+        foreach my $entry (@{$results->children}) {
+            next unless $entry->_HAS_KEY;
+            my $key = lc($entry->key());
+            my $value = lc($entry->value());
+
+            if ($key eq 'dmarc') {
+                $dmarc_result = $value;
+                # ARC-aware result overrides DMARC fail
+                if ($value eq 'fail') {
+                    foreach my $subentry (@{$entry->children}) {
+                        next unless $subentry->_HAS_KEY && $subentry->key() eq 'policy.arc-aware-result';
+                        if (lc($subentry->value()) eq 'pass') {
+                            $dmarc_result = 'pass';
+                        }
+                        last;
+                    }
+                }
+            }
+            elsif ($key eq 'dkim' && $value eq 'pass') {
+                # Check if header.d matches sender domain
+                foreach my $subentry (@{$entry->children}) {
+                    next unless $subentry->_HAS_KEY && $subentry->key() eq 'header.d';
+                    if (lc($subentry->value()) eq $sender_domain) {
+                        $dkim_pass = 1;
+                    }
+                    last;
+                }
+            }
+            elsif ($key eq 'spf' && $value eq 'pass') {
+                # Check if smtp.mailfrom domain matches sender domain
+                foreach my $subentry (@{$entry->children}) {
+                    next unless $subentry->_HAS_KEY && $subentry->key() eq 'smtp.mailfrom';
+                    my $spf_email = $subentry->value();
+                    if ($spf_email =~ /\@([^\s>]+)/) {
+                        if (lc($1) eq $sender_domain) {
+                            $spf_pass = 1;
+                        }
+                    }
+                    last;
+                }
+            }
+        }
+        last; # only process first matching header
+    }
+
+    # DMARC fail overrides everything
+    return 0 if defined $dmarc_result && $dmarc_result eq 'fail';
+
+    # DMARC pass, or aligned DKIM/SPF pass
+    return 1 if (defined $dmarc_result && $dmarc_result eq 'pass') || $dkim_pass || $spf_pass;
+
+    return 0;
+}
+
+sub query_api {
+    my ($domain, $authenticated) = @_;
+
+    my $url = "$api_url?domain=" . uri_escape($domain) . "&authenticated=$authenticated";
+    my $response = $http->get($url);
+
+    unless ($response->{success}) {
+        warn "API error for $domain: $response->{status} $response->{reason}\n"
+            unless $response->{status} == 404;
+        return $response->{status} == 404 ? [] : undef;
+    }
+
+    my $data = eval { decode_json($response->{content}) };
+    if ($@) {
+        warn "JSON parse error for $domain: $@\n";
+        return undef;
+    }
+
+    return $data->{flags} || [];
+}
+
+sub uri_escape {
+    my ($str) = @_;
+    $str =~ s/([^A-Za-z0-9\-_.~])/sprintf("%%%02X", ord($1))/eg;
+    return $str;
+}

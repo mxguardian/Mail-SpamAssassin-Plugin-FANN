@@ -1,0 +1,156 @@
+#!/usr/bin/perl
+#
+# strip-mxg-flags - Strip specified flags from X-MXG-Flags headers in corpus messages
+#
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use File::Spec;
+
+my %opt;
+GetOptions(
+    'strip-flags=s' => \$opt{strip_flags},
+    'dry-run'       => \$opt{dry_run},
+    'verbose'       => \$opt{verbose},
+    'help|h'        => \$opt{help},
+) or die "Usage: strip-mxg-flags [options] <dir> [<dir> ...]\n";
+
+if ($opt{help}) {
+    print <<'USAGE';
+Usage: strip-mxg-flags [options] <dir> [<dir> ...]
+
+Strip specified flags from X-MXG-Flags headers in corpus message files.
+Only modifies headers (before first blank line). Preserves hard links.
+
+Options:
+  --strip-flags LIST   Comma-separated flags to strip
+                       (default: high_sender_rep,low_sender_rep,low_sender_age)
+  --dry-run            Report what would be done without modifying files
+  --verbose            Print each modified file
+  -h, --help           Show this help
+USAGE
+    exit 0;
+}
+
+die "Usage: strip-mxg-flags [options] <dir> [<dir> ...]\n" unless @ARGV;
+
+my %strip = map { $_ => 1 } split /,/, ($opt{strip_flags} || 'high_sender_rep,low_sender_rep,low_sender_age');
+
+my %stats = (
+    files_scanned   => 0,
+    files_with_header => 0,
+    files_modified  => 0,
+    headers_removed => 0,
+    headers_trimmed => 0,
+);
+my %flags_removed;
+
+for my $dir (@ARGV) {
+    die "Not a directory: $dir\n" unless -d $dir;
+    opendir(my $dh, $dir) or die "Cannot open $dir: $!\n";
+    while (my $entry = readdir($dh)) {
+        next if $entry =~ /^\./;
+        my $path = File::Spec->catfile($dir, $entry);
+        next unless -f $path;
+        process_file($path);
+    }
+    closedir($dh);
+}
+
+# Print summary
+print "\n=== Summary ===\n";
+print "Files scanned:      $stats{files_scanned}\n";
+print "Files with header:  $stats{files_with_header}\n";
+print "Files modified:     $stats{files_modified}\n";
+print "  Headers removed:  $stats{headers_removed}\n";
+print "  Headers trimmed:  $stats{headers_trimmed}\n";
+print "\nFlags removed:\n";
+for my $flag (sort keys %flags_removed) {
+    printf "  %-20s %d\n", $flag, $flags_removed{$flag};
+}
+print "\n";
+print "DRY RUN - no files were modified\n" if $opt{dry_run};
+
+sub process_file {
+    my ($path) = @_;
+    $stats{files_scanned}++;
+
+    open(my $fh, '<:raw', $path) or do {
+        warn "Cannot read $path: $!\n";
+        return;
+    };
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    # Split at header/body boundary (first blank line)
+    my ($headers, $body);
+    if ($content =~ /^(.*?\r?\n)\r?\n/s) {
+        my $boundary_pos = $+[0] - length($&) + length($1) + ( $content =~ /\r\n/ ? 2 : 1 );
+        # Simpler: split on first \n\n or \r\n\r\n
+        if ($content =~ /^(.*?(?:\r?\n))\r?\n/s) {
+            # Find the position of the blank line
+        }
+    }
+
+    # More robust approach: split line by line
+    my $line_ending = ($content =~ /\r\n/) ? "\r\n" : "\n";
+    my @lines = split /\r?\n/, $content, -1;
+
+    my $header_end = 0;
+    my $flags_line_idx = -1;
+
+    for my $i (0 .. $#lines) {
+        if ($lines[$i] eq '') {
+            $header_end = $i;
+            last;
+        }
+        if ($lines[$i] =~ /^X-MXG-Flags:\s*/i) {
+            $flags_line_idx = $i;
+        }
+    }
+
+    return if $flags_line_idx < 0;  # No X-MXG-Flags header
+    $stats{files_with_header}++;
+
+    my $orig_line = $lines[$flags_line_idx];
+    my ($prefix, $value) = $orig_line =~ /^(X-MXG-Flags:\s*)(.*)/i;
+    my @flags = split /\s+/, $value;
+    my @kept;
+    for my $flag (@flags) {
+        if ($strip{$flag}) {
+            $flags_removed{$flag}++;
+        } else {
+            push @kept, $flag;
+        }
+    }
+
+    # Check if anything changed
+    return if scalar(@kept) == scalar(@flags);
+
+    $stats{files_modified}++;
+
+    if (@kept) {
+        $lines[$flags_line_idx] = $prefix . join(' ', @kept);
+        $stats{headers_trimmed}++;
+        if ($opt{verbose}) {
+            print "TRIM $path: " . join(' ', @kept) . "\n";
+        }
+    } else {
+        splice @lines, $flags_line_idx, 1;
+        $stats{headers_removed}++;
+        if ($opt{verbose}) {
+            print "REMOVE $path\n";
+        }
+    }
+
+    unless ($opt{dry_run}) {
+        open(my $wfh, '>:raw', $path) or do {
+            warn "Cannot write $path: $!\n";
+            return;
+        };
+        print $wfh join($line_ending, @lines);
+        close $wfh;
+    }
+}
