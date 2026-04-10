@@ -334,6 +334,11 @@ sub tokenize_text {
     $text =~ s/\b\d+(?:\-|\/)\d+(?:\-|\/)\d+\b//g;
     # Replace HTML entities and punctuation with spaces
     $text =~ s/&[a-z#0-9]+;/ /g;
+    # Extract emoji tokens before stripping non-letter/number chars
+    my @emojis;
+    while ($text =~ /(\p{So})/g) {
+        push @emojis, sprintf("emoji:%04X", ord($1));
+    }
     $text =~ s{[^\p{L}\p{N}\-]}{ }g;
     # Extract CJK character bigrams, then replace CJK runs with spaces
     my @cjk_bigrams;
@@ -352,6 +357,7 @@ sub tokenize_text {
     if (defined $prefix && length $prefix) {
       @tokens = map { $prefix . $_ } @tokens;
     }
+    push @tokens, @emojis;  # emoji tokens already have their own prefix
     return @tokens;
 }
 
