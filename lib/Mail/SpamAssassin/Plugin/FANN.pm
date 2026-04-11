@@ -453,7 +453,7 @@ sub extract_tokens {
         if ($type eq 'text/html' && $has_name) {
             my $rendered = $part->visible_rendered();
             if (defined $rendered && length $rendered) {
-                push @tokens, $self->tokenize_text($rendered, 'attach:');
+                push @tokens, $self->tokenize_text($rendered, 'body:');
             }
             push @tokens, $self->tokenize_filename($name, 'fn:');
             next;
@@ -463,7 +463,7 @@ sub extract_tokens {
         if ($type =~ m{^text/} && $has_name) {
             my $rendered = $part->visible_rendered();
             if (defined $rendered && length $rendered) {
-                push @tokens, $self->tokenize_text($rendered, 'attach:');
+                push @tokens, $self->tokenize_text($rendered, 'body:');
             }
             push @tokens, $self->tokenize_filename($name, 'fn:');
             next;
@@ -473,7 +473,7 @@ sub extract_tokens {
         if ($type eq 'application/pdf') {
             my $rendered = $part->visible_rendered();
             if (defined $rendered && length $rendered) {
-                push @tokens, $self->tokenize_text($rendered, 'attach:');
+                push @tokens, $self->tokenize_text($rendered, 'body:');
             }
             push @tokens, $self->tokenize_filename($name, 'fn:') if $has_name;
             next;
@@ -484,7 +484,7 @@ sub extract_tokens {
             $type eq 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
             my $rendered = $part->visible_rendered();
             if (defined $rendered && length $rendered) {
-                push @tokens, $self->tokenize_text($rendered, 'attach:');
+                push @tokens, $self->tokenize_text($rendered, 'body:');
             }
             push @tokens, $self->tokenize_filename($name, 'fn:') if $has_name;
             next;
