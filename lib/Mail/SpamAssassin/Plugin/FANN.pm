@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -377,6 +377,12 @@ sub tokenize_filename {
         $name = Encode::decode('UTF-8', $name, Encode::FB_DEFAULT);
     }
 
+    # Extract and remove file extension
+    my @tokens;
+    if ($name =~ s/\.([a-zA-Z0-9]{1,8})$//) {
+        push @tokens, "fe:" . lc($1);
+    }
+
     # Split camelCase: insert space before uppercase preceded by lowercase
     $name =~ s/([a-z])([A-Z])/$1 $2/g;
     # Replace numbers and non-letter chars with spaces
@@ -393,11 +399,13 @@ sub tokenize_filename {
         }
     }
     $name =~ s/[\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]+/ /g;
-    my @tokens = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
-    push @tokens, @cjk_bigrams;
-    @tokens = grep { !$stopwords->{$_} } @tokens;
+    my @words = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
+    push @words, @cjk_bigrams;
+    @words = grep { !$stopwords->{$_} } @words;
     if (defined $prefix && length $prefix) {
-        @tokens = map { $prefix . $_ } @tokens;
+        push @tokens, map { $prefix . $_ } @words;
+    } else {
+        push @tokens, @words;
     }
     return @tokens;
 }
