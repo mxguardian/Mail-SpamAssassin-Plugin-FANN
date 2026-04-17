@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.19';
+our $VERSION = '0.20';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -337,7 +337,7 @@ sub tokenize_text {
     # Extract emoji tokens before stripping non-letter/number chars
     my @emojis;
     while ($text =~ /(\p{So})/g) {
-        push @emojis, sprintf("emoji:%04X", ord($1));
+        push @emojis, "emoji:$1";
     }
     $text =~ s{[^\p{L}\p{N}\-]}{ }g;
     # Extract CJK character bigrams, then replace CJK runs with spaces
