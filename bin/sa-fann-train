@@ -459,10 +459,10 @@ my (@train_vectors, @train_labels);
 foreach my $msg (@all_messages) {
   my $vec = $nn_plugin->compute_tfidf_vector($msg->{tokens}, \@vocab_keys, \%vocab_index, \%idf);
 
-  # Append binary rule features
+  # Append rule features (log-scaled counts for multiple-fire rules, binary for others)
   if (@rule_keys) {
     my $hits = $msg->{rule_hits} || {};
-    push @$vec, map { $hits->{ substr($_, 5) } ? 1 : 0 } @rule_keys;
+    push @$vec, map { my $c = $hits->{ substr($_, 5) } || 0; $c > 1 ? log($c + 1) : $c } @rule_keys;
   }
 
   push @train_vectors, $vec;
@@ -657,21 +657,21 @@ sub process_message {
   # Extract tokens using the same method as inference
   my $tokens = $nn_plugin->extract_tokens($msg, $pms);
 
-  # Extract rule hits separately (binary features, not TF-IDF tokens)
+  # Extract rule hits (count for tflags multiple rules, binary for others)
   my %rule_hits;
   my $exclude_rules = $spamtest->{conf}->{fann_exclude_rules} || {};
   my $hit_str = $pms->get_names_of_tests_hit();
   if ($hit_str) {
     for my $r (split(/,/, $hit_str)) {
       next if $exclude_rules->{$r};
-      $rule_hits{$r} = 1;
+      $rule_hits{$r} = ($rule_hits{$r} || 0) + 1;
     }
   }
   my $sub_str = $pms->get_names_of_subtests_hit();
   if ($sub_str) {
     for my $r (split(/,/, $sub_str)) {
       next if $exclude_rules->{$r};
-      $rule_hits{$r} = 1;
+      $rule_hits{$r} = ($rule_hits{$r} || 0) + 1;
     }
   }
 

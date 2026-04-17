@@ -655,7 +655,7 @@ sub _run_fann_prediction {
     @tfidf_vec = ();
   }
 
-  # Append binary rule features
+  # Append rule features (log-scaled counts for multiple-fire rules, binary for others)
   my $rule_keys = $vocab->{rule_keys};
   my @rule_vec;
   if (@$rule_keys) {
@@ -665,17 +665,17 @@ sub _run_fann_prediction {
     if ($hit_str) {
       for my $r (split(/,/, $hit_str)) {
         next if $exclude->{$r};
-        $hits{$r} = 1;
+        $hits{$r} = ($hits{$r} || 0) + 1;
       }
     }
     my $sub_str = $pms->get_names_of_subtests_hit();
     if ($sub_str) {
       for my $r (split(/,/, $sub_str)) {
         next if $exclude->{$r};
-        $hits{$r} = 1;
+        $hits{$r} = ($hits{$r} || 0) + 1;
       }
     }
-    @rule_vec = map { $hits{ substr($_, 5) } ? 1 : 0 } @$rule_keys;
+    @rule_vec = map { my $c = $hits{ substr($_, 5) } || 0; $c > 1 ? log($c + 1) : $c } @$rule_keys;
   }
 
   my @combined = (@tfidf_vec, @rule_vec);
