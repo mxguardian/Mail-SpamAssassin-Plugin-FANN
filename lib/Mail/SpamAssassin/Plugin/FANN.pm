@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.21';
+our $VERSION = '0.22';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -334,12 +334,12 @@ sub tokenize_text {
     $text =~ s/\b\d+(?:\-|\/)\d+(?:\-|\/)\d+\b//g;
     # Replace HTML entities and punctuation with spaces
     $text =~ s/&[a-z#0-9]+;/ /g;
-    # Extract emoji tokens before stripping non-letter/number chars
+    # Extract emoji characters before stripping non-letter/number chars
     my @emojis;
     while ($text =~ /(\p{So})/g) {
-        push @emojis, "emoji:$1";
+        push @emojis, $1;
     }
-    $text =~ s{[^\p{L}\p{N}\-]}{ }g;
+    $text =~ s{[^\p{L}\p{N}]}{ }g;
     # Extract CJK character bigrams, then replace CJK runs with spaces
     my @cjk_bigrams;
     while ($text =~ /([\p{Han}\p{Hangul}\p{Katakana}\p{Hiragana}]{2,})/g) {
@@ -354,10 +354,10 @@ sub tokenize_text {
     push @tokens, @cjk_bigrams;
     @tokens = grep { $_ !~ /^\d+$/ } @tokens;         # drop pure numbers
     @tokens = grep { !$stopwords->{$_} } @tokens;      # drop stopwords
+    push @tokens, @emojis;
     if (defined $prefix && length $prefix) {
       @tokens = map { $prefix . $_ } @tokens;
     }
-    push @tokens, @emojis;  # emoji tokens already have their own prefix
     return @tokens;
 }
 
@@ -385,6 +385,11 @@ sub tokenize_filename {
 
     # Split camelCase: insert space before uppercase preceded by lowercase
     $name =~ s/([a-z])([A-Z])/$1 $2/g;
+    # Extract emoji characters before stripping non-letter chars
+    my @emojis;
+    while ($name =~ /(\p{So})/g) {
+        push @emojis, $1;
+    }
     # Replace numbers and non-letter chars with spaces
     $name =~ s/[^\p{L}]/ /g;
     $name = lc $name;
@@ -402,6 +407,7 @@ sub tokenize_filename {
     my @words = grep { length($_) >= 2 && length($_) <= $max_word_len } split /\s+/, $name;
     push @words, @cjk_bigrams;
     @words = grep { !$stopwords->{$_} } @words;
+    push @words, @emojis;
     if (defined $prefix && length $prefix) {
         push @tokens, map { $prefix . $_ } @words;
     } else {

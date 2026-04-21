@@ -1,0 +1,131 @@
+#!/bin/bash
+# sa-fann-nightly - Nightly FANN retraining with accuracy gate
+#
+# Trains a fresh model on the full corpus, runs an accuracy sanity check
+# against the holdout test set, and rolls back to the previous model if
+# quality regresses. Intended to run from cron.
+#
+# NOTE: the holdout in /var/lib/mxguardian/corpus/split/test is hard-linked
+# from the full corpus, so the accuracy gate is a sanity check (catches
+# collapsed / catastrophically broken models), not a true generalization
+# measurement.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+CORPUS_SPAM=/var/lib/mxguardian/corpus/spam
+CORPUS_HAM=/var/lib/mxguardian/corpus/ham
+TEST_SPAM=/var/lib/mxguardian/corpus/split/test/spam
+TEST_HAM=/var/lib/mxguardian/corpus/split/test/ham
+FANN_DIR=/var/lib/mxguardian/fann_data
+LOG_DIR="$FANN_DIR/logs"
+HISTORY_DIR="$FANN_DIR/history"
+LOCK_FILE="$FANN_DIR/.nightly.lock"
+
+MIN_ACCURACY=90
+MAX_FP_RATE=10
+HISTORY_KEEP=7
+
+export PATH=/usr/local/bin:/usr/bin:/bin
+
+mkdir -p "$LOG_DIR" "$HISTORY_DIR"
+
+TS=$(date +%Y%m%d_%H%M%S)
+LOG="$LOG_DIR/nightly_$TS.log"
+
+log()  { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
+fail() { log "FAIL: $*"; exit 1; }
+
+restore_backup() {
+  local backup_dir="$1"
+  if [[ -f "$backup_dir/fann.model" ]]; then
+    cp "$backup_dir/fann.model"      "$FANN_DIR/fann.model"
+    cp "$backup_dir/vocabulary.data" "$FANN_DIR/vocabulary.data"
+    log "Restored previous model from $backup_dir"
+  else
+    log "No backup available to restore"
+  fi
+}
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || fail "Another nightly run is in progress (lock held)"
+
+cd "$REPO_DIR" || fail "Cannot cd to $REPO_DIR"
+
+SPAM_COUNT=$(ls "$CORPUS_SPAM" | wc -l)
+HAM_COUNT=$(ls "$CORPUS_HAM"  | wc -l)
+log "Corpus: $SPAM_COUNT spam, $HAM_COUNT ham"
+
+BACKUP="$HISTORY_DIR/model_$TS"
+mkdir -p "$BACKUP"
+cp "$FANN_DIR/fann.model"      "$BACKUP/" 2>/dev/null || log "No prior model to back up"
+cp "$FANN_DIR/vocabulary.data" "$BACKUP/" 2>/dev/null || true
+log "Backup dir: $BACKUP"
+
+log "Starting training..."
+START=$(date +%s)
+perl -T -Ilib bin/sa-fann-train \
+    --spam "$CORPUS_SPAM" \
+    --ham  "$CORPUS_HAM" \
+    --skip-rbl-checks --jobs 8 \
+    --vocab-cap 10000 --epochs 1000 \
+    --hidden2 50 \
+    --prune-method df --min-df 0.001 --max-df 0.8 \
+    --seed 42 \
+    >> "$LOG" 2>&1
+TRAIN_RC=$?
+DURATION=$(( $(date +%s) - START ))
+log "Training finished in ${DURATION}s (exit $TRAIN_RC)"
+
+if [[ $TRAIN_RC -ne 0 ]]; then
+  restore_backup "$BACKUP"
+  fail "sa-fann-train exited $TRAIN_RC"
+fi
+
+log "Running accuracy test on holdout..."
+REPORT=$(perl -T -Ilib bin/fann-test-accuracy \
+    --skip-rbl-checks \
+    "$TEST_SPAM" "$TEST_HAM" 2>&1)
+TEST_RC=$?
+echo "$REPORT" >> "$LOG"
+
+if [[ $TEST_RC -ne 0 ]]; then
+  restore_backup "$BACKUP"
+  fail "fann-test-accuracy exited $TEST_RC"
+fi
+
+ACCURACY=$(echo "$REPORT" | awk '
+  /^Overall/ { in_overall = 1 }
+  in_overall && /Correct:/ { gsub(/[()%]/, ""); print $3; exit }')
+FP_RATE=$(echo "$REPORT" | awk '
+  /^HAM test set/ { in_ham = 1 }
+  in_ham && /FANN_SPAM.*wrong/ { gsub(/[()%]/, ""); print $4; exit }')
+
+log "Results: accuracy=${ACCURACY}%, FP rate=${FP_RATE}%"
+
+if [[ -z "$ACCURACY" || -z "$FP_RATE" ]]; then
+  restore_backup "$BACKUP"
+  fail "Could not parse accuracy report"
+fi
+
+GATE_FAIL=0
+awk -v a="$ACCURACY" -v min="$MIN_ACCURACY" 'BEGIN { exit !(a+0 < min+0) }' \
+  && { log "Accuracy $ACCURACY% below threshold $MIN_ACCURACY%"; GATE_FAIL=1; }
+awk -v f="$FP_RATE" -v max="$MAX_FP_RATE" 'BEGIN { exit !(f+0 > max+0) }' \
+  && { log "FP rate $FP_RATE% above threshold $MAX_FP_RATE%"; GATE_FAIL=1; }
+
+if [[ $GATE_FAIL -eq 1 ]]; then
+  restore_backup "$BACKUP"
+  fail "Quality regression — previous model restored"
+fi
+
+log "Accuracy gate passed"
+
+cd "$HISTORY_DIR"
+ls -dt model_* 2>/dev/null | tail -n +$((HISTORY_KEEP + 1)) | xargs -r rm -rf
+cd "$LOG_DIR"
+ls -t nightly_*.log 2>/dev/null | tail -n +$((HISTORY_KEEP + 1)) | xargs -r rm -f
+
+log "Done"
