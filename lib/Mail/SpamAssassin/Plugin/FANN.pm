@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.22';
+our $VERSION = '0.23';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -530,6 +530,12 @@ sub extract_tokens {
     my $subject = $pms->get('Subject');
     if (defined $subject && length $subject) {
         push @tokens, $self->tokenize_text($subject, 'subj:');
+    }
+
+    # X-Mailer
+    my $xmailer = $pms->get('X-Mailer');
+    if (defined $xmailer && length $xmailer) {
+        push @tokens, $self->tokenize_text($xmailer, 'xmailer:');
     }
 
     # Link texts and URI TLDs
