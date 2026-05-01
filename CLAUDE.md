@@ -21,10 +21,10 @@ Training command:
 perl -T -Ilib bin/sa-fann-train \
   --spam /var/lib/mxguardian/corpus/split/train/spam \
   --ham /var/lib/mxguardian/corpus/split/train/ham \
-  --skip-rbl-checks --jobs 8 --progress
+  --local --jobs 8 --progress
 ```
 
-Always use `--skip-rbl-checks` (allows SPF/DMARC/DKIM but skips RBL checks) and `--jobs 8` to speed things up.
+Always use `--local` (disables all live network tests) and `--jobs 8` to speed things up. The MXG::Reuse SA plugin replays delivery-time network test hits from MongoDB at training time, so live network tests are unnecessary and would just produce stale results against archived corpus messages.
 
 ## Architecture
 

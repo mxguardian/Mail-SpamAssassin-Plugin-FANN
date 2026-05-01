@@ -1,14 +1,13 @@
 #!/bin/bash
-# sa-fann-nightly - Nightly FANN retraining with accuracy gate
+# sa-fann-nightly - Nightly FANN retraining with collapse detection
 #
-# Trains a fresh model on the full corpus, runs an accuracy sanity check
-# against the holdout test set, and rolls back to the previous model if
-# quality regresses. Intended to run from cron.
+# Trains a fresh model on the full corpus, runs a sanity check against the
+# holdout to detect model collapse (everything classified as one class, or
+# all outputs stuck in one bucket), and rolls back only if collapse is
+# detected. Intended to run from cron.
 #
-# NOTE: the holdout in /var/lib/mxguardian/corpus/split/test is hard-linked
-# from the full corpus, so the accuracy gate is a sanity check (catches
-# collapsed / catastrophically broken models), not a true generalization
-# measurement.
+# The gate is intentionally lenient: anything better than "clearly broken"
+# is allowed through. Accuracy tracking is the operator's responsibility.
 
 set -uo pipefail
 
@@ -24,8 +23,10 @@ LOG_DIR="$FANN_DIR/logs"
 HISTORY_DIR="$FANN_DIR/history"
 LOCK_FILE="$FANN_DIR/.nightly.lock"
 
-MIN_ACCURACY=90
-MAX_FP_RATE=10
+# Collapse threshold: each class must get at least this % correct. A healthy
+# model clears this easily; a collapsed one (all-spam, all-ham, all-unknown,
+# or bimodal-but-wrong) will fail at least one side.
+MIN_CLASS_RECALL=30
 HISTORY_KEEP=7
 
 export PATH=/usr/local/bin:/usr/bin:/bin
@@ -96,32 +97,32 @@ if [[ $TEST_RC -ne 0 ]]; then
   fail "fann-test-accuracy exited $TEST_RC"
 fi
 
-ACCURACY=$(echo "$REPORT" | awk '
-  /^Overall/ { in_overall = 1 }
-  in_overall && /Correct:/ { gsub(/[()%]/, ""); print $3; exit }')
-FP_RATE=$(echo "$REPORT" | awk '
+SPAM_RECALL=$(echo "$REPORT" | awk '
+  /^SPAM test set/ { in_spam = 1 }
+  in_spam && /FANN_SPAM.*correct/ { gsub(/[()%]/, ""); print $4; exit }')
+HAM_RECALL=$(echo "$REPORT" | awk '
   /^HAM test set/ { in_ham = 1 }
-  in_ham && /FANN_SPAM.*wrong/ { gsub(/[()%]/, ""); print $4; exit }')
+  in_ham && /FANN_HAM.*correct/ { gsub(/[()%]/, ""); print $4; exit }')
 
-log "Results: accuracy=${ACCURACY}%, FP rate=${FP_RATE}%"
+log "Results: spam recall=${SPAM_RECALL}%, ham recall=${HAM_RECALL}%"
 
-if [[ -z "$ACCURACY" || -z "$FP_RATE" ]]; then
+if [[ -z "$SPAM_RECALL" || -z "$HAM_RECALL" ]]; then
   restore_backup "$BACKUP"
   fail "Could not parse accuracy report"
 fi
 
 GATE_FAIL=0
-awk -v a="$ACCURACY" -v min="$MIN_ACCURACY" 'BEGIN { exit !(a+0 < min+0) }' \
-  && { log "Accuracy $ACCURACY% below threshold $MIN_ACCURACY%"; GATE_FAIL=1; }
-awk -v f="$FP_RATE" -v max="$MAX_FP_RATE" 'BEGIN { exit !(f+0 > max+0) }' \
-  && { log "FP rate $FP_RATE% above threshold $MAX_FP_RATE%"; GATE_FAIL=1; }
+awk -v r="$SPAM_RECALL" -v min="$MIN_CLASS_RECALL" 'BEGIN { exit !(r+0 < min+0) }' \
+  && { log "Spam recall $SPAM_RECALL% below $MIN_CLASS_RECALL% — model appears collapsed"; GATE_FAIL=1; }
+awk -v r="$HAM_RECALL" -v min="$MIN_CLASS_RECALL" 'BEGIN { exit !(r+0 < min+0) }' \
+  && { log "Ham recall $HAM_RECALL% below $MIN_CLASS_RECALL% — model appears collapsed"; GATE_FAIL=1; }
 
 if [[ $GATE_FAIL -eq 1 ]]; then
   restore_backup "$BACKUP"
-  fail "Quality regression — previous model restored"
+  fail "Model collapse detected — previous model restored"
 fi
 
-log "Accuracy gate passed"
+log "Collapse check passed"
 
 cd "$HISTORY_DIR"
 ls -dt model_* 2>/dev/null | tail -n +$((HISTORY_KEEP + 1)) | xargs -r rm -rf

@@ -38,7 +38,7 @@ use strict;
 use warnings;
 use re 'taint';
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 use AI::FANN qw(:all);
 use Storable qw(store retrieve);
@@ -235,6 +235,34 @@ multiple times.
   });
 
   $conf->{parser}->register_commands(\@cmds);
+}
+
+# Raise the priority of any rule that invokes check_fann so the eval fires
+# late in SA's priority loop, by which point DNS queries from RBL rules
+# have been harvested. Runs before Conf::Parser buckets rules by priority,
+# so setting $conf->{priority}{$rulename} here makes the rule land in the
+# desired bucket.
+sub _set_fann_rule_priority {
+  my ($self, $conf) = @_;
+  my $target = 1000;
+  for my $rulename (keys %{ $conf->{tests} || {} }) {
+    my $text = $conf->{tests}{$rulename};
+    next unless defined $text && $text =~ /\bcheck_fann\s*\(/;
+    my $cur = $conf->{priority}{$rulename};
+    if (!defined $cur || $cur < $target) {
+      $conf->{priority}{$rulename} = $target;
+    }
+  }
+}
+
+sub finish_parsing_start {
+  my ($self, $opts) = @_;
+  $self->_set_fann_rule_priority($opts->{conf});
+}
+
+sub user_conf_parsing_start {
+  my ($self, $opts) = @_;
+  $self->_set_fann_rule_priority($opts->{conf});
 }
 
 sub finish_parsing_end {
